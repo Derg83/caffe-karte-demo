@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1D5A46">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-512.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+</head>
+<body>
+<title>Caffe Karte</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Schriften liegen auf dem eigenen Server (keine Verbindung zu Google, wichtig für den Datenschutz) */
+@font-face{font-family:"Bricolage Grotesque";font-weight:600;font-display:swap;src:url(fonts/bricolage-grotesque-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Bricolage Grotesque";font-weight:700;font-display:swap;src:url(fonts/bricolage-grotesque-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:400;font-display:swap;src:url(fonts/figtree-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:500;font-display:swap;src:url(fonts/figtree-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:600;font-display:swap;src:url(fonts/figtree-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-weight:700;font-display:swap;src:url(fonts/figtree-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-weight:500;font-display:swap;src:url(fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-weight:600;font-display:swap;src:url(fonts/jetbrains-mono-latin-600-normal.woff2) format("woff2")}
+</style>
+<style>
+/* Layout: Kopfzeile mit Café und Reitern; darunter Gast-Handy und Theke-Tablet nebeneinander (schmal: umschaltbar), Reiter Rechner mit Eingaben links und Ergebnis rechts. */
+:root{
+  --stage:#E4EAE3; --bg:#F4F7F3; --surface:#FFFFFF; --sunk:#E9EFE8; --ink:#15201A; --muted:#58665D; --line:#D3DBD2;
+  --accent:#1D5A46; --accent-ink:#FFFFFF; --accent-soft:#DAEBE2;
+  --crema:#B06512; --crema-soft:#F6E6CF; --ok:#2A7648; --ok-soft:#DCEEE2; --bad:#A63A2B; --bad-soft:#F6DEDA; --scrim:rgba(12,18,15,.48);
+  --f-display:"Bricolage Grotesque","Avenir Next",system-ui,sans-serif;
+  --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --stage:#0A0E0C; --bg:#111814; --surface:#18211C; --sunk:#1F2A24; --ink:#E5ECE7; --muted:#96A49B; --line:#2B3731;
+  --accent:#63C29F; --accent-ink:#0B1913; --accent-soft:#1C392E;
+  --crema:#F0AA4C; --crema-soft:#3A2B16; --ok:#6CCB8F; --ok-soft:#1A3425; --bad:#F08A7A; --bad-soft:#3D1F1A; --scrim:rgba(0,0,0,.6); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --stage:#0A0E0C; --bg:#111814; --surface:#18211C; --sunk:#1F2A24; --ink:#E5ECE7; --muted:#96A49B; --line:#2B3731;
+  --accent:#63C29F; --accent-ink:#0B1913; --accent-soft:#1C392E;
+  --crema:#F0AA4C; --crema-soft:#3A2B16; --ok:#6CCB8F; --ok-soft:#1A3425; --bad:#F08A7A; --bad-soft:#3D1F1A; --scrim:rgba(0,0,0,.6); color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--stage);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.4;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 28px;-webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--crema);outline-offset:2px}
+[hidden]{display:none!important}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+/* Kopfzeile */
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 260px}
+.mark{width:42px;height:42px;flex:none}
+.brand-t{min-width:0}
+.brand-t small{display:block;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.brand-t h1{font-family:var(--f-display);font-size:24px;line-height:1.1;margin:2px 0 0;letter-spacing:-.01em;overflow-wrap:anywhere}
+.demo-pill{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;border-radius:999px;background:var(--crema-soft);color:var(--crema);white-space:nowrap}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.seg{display:flex;background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px}
+.seg button{border:0;background:none;border-radius:9px;padding:9px 14px;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 1px 2px var(--scrim)}
+.gear{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:9px 14px;font-weight:600;font-size:14px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.gear svg{width:18px;height:18px}
+.badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--crema);color:var(--bg);font:600 12px/20px var(--f-mono)}
+
+/* Bühne */
+.flow{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted)}
+.flow span{display:inline-flex;align-items:center;gap:8px}
+.flow i{font:600 11px/20px var(--f-mono);font-style:normal;width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--accent-ink);text-align:center}
+.paneSwitch{display:none}
+.stage{display:grid;grid-template-columns:minmax(0,390px) minmax(0,1fr);gap:20px;align-items:start}
+.device{position:relative;background:var(--bg);border:1px solid var(--line);box-shadow:0 30px 60px -34px var(--scrim);display:flex;flex-direction:column;overflow:hidden;height:760px;min-width:0}
+.device.phone{border-radius:34px}
+.device.tablet{border-radius:22px}
+.dev-label{position:absolute;top:-1px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--stage);padding:0 10px;border-radius:0 0 8px 8px;z-index:2}
+.scroll{flex:1;overflow-y:auto;min-height:0}
+.scr{padding:26px 18px 22px;display:flex;flex-direction:column;gap:16px}
+.dock{padding:12px 18px 16px;border-top:1px solid var(--line);background:var(--bg);display:flex;gap:12px;align-items:center}
+.ff{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;border:1px dashed var(--line);border-radius:var(--r);font-size:13px;color:var(--muted)}
+.ff .row{display:flex;gap:6px;flex-wrap:wrap}
+.mini{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 11px;font-weight:600;font-size:13px;cursor:pointer}
+
+/* Gast */
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cafe{font-weight:700;font-size:15px;min-width:0;overflow-wrap:anywhere}
+.cafe small{display:block;font-weight:500;color:var(--muted);font-size:13px}
+.pill{font:600 12px var(--f-mono);padding:6px 10px;border-radius:999px;background:var(--sunk);border:1px solid var(--line);white-space:nowrap}
+.pill.live{display:flex;align-items:center;gap:7px;color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.pill.live::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.title{font-family:var(--f-display);font-size:27px;line-height:1.05;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.title.sm{font-size:24px}
+.lead{margin:0;color:var(--muted);line-height:1.5}
+.lbl{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.note{font-size:13px;color:var(--muted);margin:0;line-height:1.45}
+.banner{padding:10px 12px;border-radius:12px;background:var(--crema-soft);font-size:14px}
+.chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.chips.tables{grid-template-columns:repeat(6,1fr)}
+.chip{padding:9px 0 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:600 16px var(--f-mono);text-align:center}
+.chip small{display:block;font:500 11px var(--f-body);color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip[aria-pressed="true"] small{color:var(--accent-ink);opacity:.8}
+.menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.item{display:grid;grid-template-columns:1fr auto 20px;align-items:center;gap:12px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
+.item:first-child{border-top:0}
+.item b{font-weight:600}
+.item .pr{font:500 14px var(--f-mono)}
+.radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line)}
+.item[aria-pressed="true"]{background:var(--accent-soft)}
+.item[aria-pressed="true"] .radio{border:6px solid var(--accent)}
+.how{margin:0;padding:14px 14px 14px 34px;border-radius:var(--r);background:var(--sunk);display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
+.how b{color:var(--ink)}
+.btn{appearance:none;border:0;border-radius:14px;padding:15px 18px;font-weight:600;font-size:16px;cursor:pointer;width:100%}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.stop{background:var(--ink);color:var(--bg)}
+.btn.ghost{background:var(--sunk);color:var(--ink);border:1px solid var(--line)}
+.btn.sm{width:auto;padding:9px 13px;font-size:14px;border-radius:11px;flex:none}
+.btn:disabled{opacity:.5;cursor:default}
+.link{border:0;background:none;color:var(--accent);font-weight:600;cursor:pointer;padding:4px 0;align-self:flex-start;font-size:14px}
+.ring{position:relative;width:208px;max-width:100%;aspect-ratio:1;margin:0 auto}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .trk{fill:none;stroke:var(--line);stroke-width:11}
+.ring .prg{fill:none;stroke:var(--crema);stroke-width:11;stroke-linecap:round;transition:stroke-dashoffset .4s linear}
+.ring .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:2px;padding:0 28px}
+.cd-l{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.cd{font:600 40px/1.05 var(--f-mono);letter-spacing:-.03em}
+.cd-at{font-size:13px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;align-items:center;gap:12px}
+.card .ic{width:42px;height:42px;border-radius:12px;background:var(--crema-soft);color:var(--crema);display:grid;place-items:center;flex:none}
+.card .ic svg{width:22px;height:22px}
+.grow{flex:1;min-width:0}
+.grow b{display:block;font-size:16px}
+.grow .t{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.state{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--crema-soft);font-size:14px}
+.state.ready{background:var(--ok-soft);border:2px solid var(--ok)}
+.state svg{width:20px;height:20px;color:var(--crema);flex:none}
+.state.ready svg{color:var(--ok)}
+.bon{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px 14px;font-variant-numeric:tabular-nums}
+.bon-h{display:flex;justify-content:space-between;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-bottom:6px}
+.bon-row{display:grid;grid-template-columns:44px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}
+.bon.final .bon-row{grid-template-columns:44px minmax(0,1fr) auto}
+.bon-row time{font:500 13px var(--f-mono);color:var(--muted)}
+.bon-row em{font-style:normal;font-size:11px;color:var(--muted);margin-left:4px}
+.bon-row .p{font:500 14px var(--f-mono);text-align:right}
+.st{font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.st-open{background:var(--crema-soft);color:var(--crema)}
+.st-ready{background:var(--ok);color:var(--accent-ink)}
+.st-done{background:var(--ok-soft);color:var(--ok)}
+.bon-sum{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;margin-top:2px;border-top:2px solid var(--ink);font-weight:700}
+.bon-sum .mono{font-size:18px}
+.dock .sum{flex:none;display:flex;flex-direction:column}
+.dock .sum span{font-size:12px;color:var(--muted)}
+.dock .sum b{font:600 19px var(--f-mono)}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:grid;grid-template-columns:42px minmax(0,1fr) 20px;gap:12px;align-items:center;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);text-align:left;cursor:pointer;width:100%}
+.opt .ic{width:42px;height:42px;border-radius:12px;background:var(--sunk);display:grid;place-items:center;color:var(--accent)}
+.opt .ic svg{width:22px;height:22px}
+.opt b{display:block;font-size:16px}
+.opt span{display:block;font-size:13px;color:var(--muted)}
+.amt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:16px;border-radius:var(--r);background:var(--accent);color:var(--accent-ink)}
+.amt span{font-size:14px;opacity:.85}
+.amt b{font:600 34px/1.1 var(--f-mono)}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.steps li{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;font-size:15px;color:var(--muted)}
+.steps li::before{content:"";width:16px;height:16px;border-radius:50%;border:2px solid var(--line);justify-self:center}
+.steps li.done{color:var(--ink)}
+.steps li.done::before{background:var(--ok);border-color:var(--ok)}
+.steps li.now{color:var(--ink);font-weight:600}
+.steps li.now::before{border-color:var(--crema);background:var(--crema-soft);animation:pulse 1.6s infinite}
+.ok-mark{width:72px;height:72px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:grid;place-items:center;margin:8px auto 0}
+.ok-mark svg{width:34px;height:34px}
+.center{text-align:center}
+.center .bon{text-align:left}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;font-size:13px;color:var(--muted)}
+.facts b{display:block;color:var(--ink);font:600 15px var(--f-mono)}
+.row2{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Theke */
+.tk{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.tk + .tk{margin-top:8px}
+.tk.new{animation:flash 1s 3}
+@keyframes flash{50%{background:var(--crema-soft)}}
+.tisch{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;background:var(--accent-soft);color:var(--accent);border-radius:10px;padding:6px 9px;text-align:center;min-width:62px}
+.tisch b{display:block;font-size:22px;letter-spacing:0}
+.tk b{display:block}
+.tk .meta{font-size:13px;color:var(--muted)}
+.tk .btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.tk.req{border-color:var(--crema);background:var(--crema-soft)}
+.tk.req .tisch{background:var(--surface);color:var(--crema)}
+.tk.served{opacity:.65}
+.tcard{padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);display:flex;flex-direction:column;gap:10px}
+.tcard .hd{display:flex;gap:12px;align-items:center}
+.empty{margin:0;padding:14px;border:1px dashed var(--line);border-radius:var(--r);color:var(--muted);font-size:14px;text-align:center}
+.th-cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-items:start}
+.th-cols > div{display:flex;flex-direction:column;gap:16px;min-width:0}
+section{display:flex;flex-direction:column;gap:8px;min-width:0}
+.late{color:var(--bad);font-weight:700}
+
+/* Rechner */
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.panel h2{font-family:var(--f-display);font-size:22px;margin:0;letter-spacing:-.01em}
+.rng{display:flex;flex-direction:column;gap:6px}
+.rng-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:14px}
+.rng-h output{font:600 16px var(--f-mono);white-space:nowrap}
+.rng input{width:100%;accent-color:var(--accent);height:28px}
+.rng small{font-size:12px;color:var(--muted)}
+.big{display:flex;flex-direction:column;gap:4px;padding:18px;border-radius:var(--r);background:var(--accent);color:var(--accent-ink)}
+.big span{font-size:14px;opacity:.9}
+.big b{font:600 44px/1.05 var(--f-mono);letter-spacing:-.02em}
+.lines{display:flex;flex-direction:column}
+.ln{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line);font-size:15px}
+.ln:first-child{border-top:0}
+.ln b{font:600 15px var(--f-mono);white-space:nowrap}
+.ln.neg b{color:var(--bad)}
+.ln.tot{border-top:2px solid var(--ink);font-weight:700}
+.ln.tot b{font-size:18px}
+.bars{display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:96px minmax(0,1fr) 54px;gap:10px;align-items:center;font-size:13px}
+.bar .tr{height:16px;border-radius:6px;background:var(--sunk);overflow:hidden}
+.bar .fi{height:100%;border-radius:6px;background:var(--muted)}
+.bar.t .fi{background:var(--crema)}
+.bar b{font:600 13px var(--f-mono);text-align:right}
+
+/* Sheet */
+.sheet-wrap{position:absolute;inset:0;background:var(--scrim);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet-wrap.fixed{position:fixed}
+.sheet{background:var(--bg);width:100%;max-width:560px;border-radius:22px 22px 0 0;max-height:88%;overflow:auto;
+  padding:10px max(18px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 4px}
+.sheet h2{font-family:var(--f-display);font-size:22px;margin:0;letter-spacing:-.01em}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld label,.fld .l{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.fld input[type=text]{width:100%;padding:11px 12px;border-radius:11px;border:1px solid var(--line);background:var(--surface)}
+.ed{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.ed-row{display:grid;grid-template-columns:minmax(0,1fr) 80px 34px;gap:4px;align-items:center;padding:5px 6px;border-top:1px solid var(--line)}
+.ed-row:first-child{border-top:0}
+.ed input{width:100%;min-width:0;padding:8px 9px;border-radius:9px;border:1px solid transparent;background:none;font-size:14px}
+.ed input:focus{border-color:var(--accent);background:var(--bg)}
+.ed input.mono{text-align:right}
+.x{width:34px;height:34px;border:0;border-radius:9px;background:none;color:var(--muted);font-size:20px;cursor:pointer}
+.checks{display:flex;flex-wrap:wrap;gap:6px}
+.checks label{display:inline-flex;gap:6px;align-items:center;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:14px;cursor:pointer}
+.checks input{accent-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.toast{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:40;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;font-size:14px;font-weight:600;width:max-content;max-width:calc(100% - 32px);text-align:center;box-shadow:0 10px 30px -10px var(--scrim)}
+
+@media (max-width:900px){
+  .stage{grid-template-columns:minmax(0,1fr)}
+  .paneSwitch{display:flex}
+  .stage[data-show="gast"] .device.tablet,.stage[data-show="theke"] .device.phone{display:none}
+  .device{height:auto;overflow:visible}
+  .device .scroll{overflow:visible}
+  .dock{position:sticky;bottom:0;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));border-radius:0 0 22px 22px}
+  .th-cols{grid-template-columns:minmax(0,1fr)}
+  .calc{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:520px){
+  .wide-only{display:none}
+  .tools{width:100%}
+  .tools .seg{flex:1}
+  .tools .seg button{flex:1;justify-content:center}
+  .brand-t h1{font-size:20px}
+  .seg button{padding:9px 10px}
+  .scr{padding:24px 14px 20px}
+  .dock{padding-inline:14px}
+  .grid2{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#1D5A46"/><g fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"><path d="M112 212h232v86a94 94 0 0 1-94 94h-44a94 94 0 0 1-94-94z"/><path d="M344 236h22a46 46 0 0 1 0 92h-22"/></g><circle cx="228" cy="140" r="40" fill="none" stroke="#F0AA4C" stroke-width="24"/><path d="M228 140V118M228 140l16 10" stroke="#F0AA4C" stroke-width="18" stroke-linecap="round"/></svg>
+      <div class="brand-t"><small>Caffe Karte<span class="wide-only"> · Laptop-Ticker</span></small><h1 id="cafeTitle">Dein Café</h1></div>
+      <span class="demo-pill">Vorführung</span>
+    </div>
+    <div class="tools">
+      <div class="seg" role="tablist" aria-label="Ansicht">
+        <button type="button" data-act="tab" data-v="demo" aria-pressed="true">Live-Demo</button>
+        <button type="button" data-act="tab" data-v="calc" aria-pressed="false">Umsatz-Rechner</button>
+      </div>
+      <button type="button" class="gear" data-act="setup" aria-label="Einrichten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="wide-only">Einrichten</span></button>
+    </div>
+  </header>
+
+  <main id="demoView">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="flow"><span><i>1</i>Gast scannt die Karte und startet</span><span><i>2</i>Die Theke bekommt jede Runde automatisch</span><span><i>3</i>Gast stoppt beim Gehen und zahlt</span></div>
+      <div class="seg paneSwitch" role="tablist" aria-label="Gerät">
+        <button type="button" data-act="pane" data-v="gast" aria-pressed="true" style="flex:1;justify-content:center">Gast-Handy</button>
+        <button type="button" data-act="pane" data-v="theke" aria-pressed="false" style="flex:1;justify-content:center">Theke <span class="badge" id="badge" hidden>0</span></button>
+      </div>
+      <div class="stage" id="stage" data-show="gast">
+        <div class="device phone" id="gastDev"><span class="dev-label">Gast</span><div id="gast" style="display:flex;flex-direction:column;flex:1;min-height:0"></div><div id="gastSheet"></div></div>
+        <div class="device tablet" id="thekeDev"><span class="dev-label">Theke</span><div id="theke" style="display:flex;flex-direction:column;flex:1;min-height:0"></div></div>
+      </div>
+      <div class="ff"><span>Zeit vorspulen, um die nächste Runde zu zeigen</span><div class="row"><button type="button" class="mini" data-act="ff" data-v="15">+15 Min</button><button type="button" class="mini" data-act="ff" data-v="60">+1 Std</button><button type="button" class="mini" data-act="reset">Von vorn</button></div></div>
+    </div>
+  </main>
+
+  <main id="calcView" hidden></main>
+</div>
+<div id="sheet"></div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+/* ---------- Grundeinstellungen ---------- */
+const DEFAULT = {
+  name: 'Dein Café', ort: '',
+  drinks: [['Espresso', 280], ['Cappuccino', 380], ['Flat White', 420], ['Latte Macchiato', 420], ['Chai Latte', 450], ['Frischer Minztee', 380], ['Wasser 0,5 l', 300]],
+  service: 'bringen', place: 'karte', tables: 12, pay: ['bar', 'karte'], takte: [30, 45, 60, 90]
+};
+const PAY = {
+  bar: { short: 'bar am Platz', title: 'Bar am Platz', sub: 'Die Bedienung kommt zu dir.', icon: 'cash' },
+  karte: { short: 'Karte am Platz', title: 'Karte am Platz', sub: 'Die Bedienung bringt das Terminal.', icon: 'card' },
+  kasse: { short: 'an der Kasse', title: 'An der Kasse', sub: 'Zeig diese Übersicht an der Kasse.', icon: 'kasse' }
+};
+const ICON = {
+  cup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3c-.6 1 .6 2 0 3M12 3c-.6 1 .6 2 0 3"/></svg>',
+  nfc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 8.5a6 6 0 0 1 0 7M9.5 6a10 10 0 0 1 0 12M13 3.5a14 14 0 0 1 0 17"/></svg>',
+  tray: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 17h18M5 17a7 7 0 0 1 14 0M12 8V6M10 6h4"/></svg>',
+  card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h3"/></svg>',
+  cash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>',
+  kasse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M6 20V11h12v9M8 11V6h8v5M10 15h4"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+};
+const RC = 2 * Math.PI * 88, MIN = 60000;
+const eur = c => (c / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+const eur0 = c => (c / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const clock = ts => new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+const pad = n => String(n).padStart(2, '0');
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function dur(ms) { ms = Math.max(0, ms); const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${pad(m)} Min` : `${m} Min`; }
+function cd(ms) { ms = Math.max(0, ms); const s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${pad(m)}:${pad(x)}` : `${pad(m)}:${pad(x)}`; }
+let toastT; function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2600); }
+
+/* ---------- Café-Daten: Link > Gerät > Standard ---------- */
+function encode(c) { const j = JSON.stringify({ n: c.name, o: c.ort, d: c.drinks, s: c.service, p: c.place, z: c.pay, t: c.takte }); return btoa(unescape(encodeURIComponent(j))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function decode(s) {
+  const j = JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))));
+  return clean({ name: j.n, ort: j.o, drinks: j.d, service: j.s, place: j.p, pay: j.z, takte: j.t });
+}
+function clean(c) {
+  const d = { ...DEFAULT, ...c };
+  d.name = String(d.name || DEFAULT.name).slice(0, 60); d.ort = String(d.ort || '').slice(0, 60);
+  d.drinks = (Array.isArray(d.drinks) ? d.drinks : DEFAULT.drinks).filter(x => x && String(x[0]).trim()).map(x => [String(x[0]).trim().slice(0, 40), Math.max(0, Math.round(+x[1]) || 0)]).slice(0, 20);
+  if (!d.drinks.length) d.drinks = DEFAULT.drinks;
+  d.service = d.service === 'abholen' ? 'abholen' : 'bringen'; d.place = d.place === 'tisch' ? 'tisch' : 'karte';
+  d.pay = (Array.isArray(d.pay) ? d.pay : []).filter(p => PAY[p]); if (!d.pay.length) d.pay = ['bar', 'karte'];
+  d.takte = (Array.isArray(d.takte) ? d.takte : []).map(Number).filter(t => [30, 45, 60, 90].includes(t)).sort((a, b) => a - b); if (!d.takte.length) d.takte = [60];
+  return d;
+}
+function loadCfg() {
+  try { const q = new URLSearchParams(location.search).get('d'); if (q) return { cfg: decode(q), fromLink: true }; } catch (_) {}
+  try { const s = localStorage.getItem('ck-demo'); if (s) return { cfg: clean(JSON.parse(s)), fromLink: false }; } catch (_) {}
+  return { cfg: clean({}), fromLink: false };
+}
+let { cfg: C } = loadCfg();
+function saveCfg() { try { localStorage.setItem('ck-demo', JSON.stringify(C)); } catch (_) {} }
+
+/* ---------- Ablauf ---------- */
+let skew = 0; const now = () => Date.now() + skew;
+const S = { tab: 'demo', pane: 'gast' };
+function reset() {
+  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0,
+    start: null, nextAt: null, lastAuto: null, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
+}
+reset();
+const drink = i => C.drinks[i] || C.drinks[0];
+const total = () => S.orders.reduce((a, o) => a + o.price, 0);
+const openOrders = () => S.orders.filter(o => o.status !== 'erledigt');
+const place = () => C.place === 'tisch' ? `Tisch ${S.table || '?'}` : `Karte ${S.card}`;
+
+let actx = null;
+function beep() {
+  if (!actx) return;
+  try { const t0 = actx.currentTime; [0, .18].forEach((d, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = i ? 1046 : 784; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.3, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) {}
+}
+function addOrder(i, extra, at) {
+  const d = drink(i); S.n++;
+  S.orders.push({ n: S.n, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
+  S.newIds.add(S.n); beep();
+}
+function tick() {
+  if (S.screen === 'live') {
+    let ch = false;
+    while (now() >= S.nextAt) { const at = S.nextAt; S.lastAuto = at; addOrder(S.next, false, at); S.nextAt = at + S.takt * MIN; ch = true; }
+    if (ch) { render(); toast(`Neue Runde: ${drink(S.next)[0]} für ${place()}`); }
+  }
+  update();
+}
+setInterval(tick, 500);
+
+/* ---------- Gast ---------- */
+function topBar(right) { return `<div class="top"><div class="cafe">${esc(C.name)}${C.ort ? `<small>${esc(C.ort)}</small>` : ''}</div>${right}</div>`; }
+function menuList(sel, act) { return `<div class="menu">${C.drinks.map((d, i) => `<button type="button" class="item" data-act="${act}" data-v="${i}" aria-pressed="${sel === i}"><b>${esc(d[0])}</b><span class="pr">${eur(d[1])}</span><span class="radio"></span></button>`).join('')}</div>`; }
+function taktBlock(cur) {
+  if (C.takte.length === 1) return `<div class="card" style="justify-content:space-between"><span>Vom Café festgelegt</span><b class="mono">${C.takte[0]} Min</b></div>`;
+  return `<div class="chips" role="group" aria-label="Takt">${C.takte.map(t => `<button type="button" class="chip" data-act="takt" data-v="${t}" aria-pressed="${cur === t}">${t}<small>Min</small></button>`).join('')}</div>`;
+}
+function bon(final) {
+  const ab = C.service === 'abholen';
+  const lbl = { offen: ab ? 'in Arbeit' : 'unterwegs', fertig: 'abholbereit', erledigt: ab ? 'abgeholt' : 'serviert' }, cls = { offen: 'st-open', fertig: 'st-ready', erledigt: 'st-done' };
+  return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${place()}</span><span class="mono">#0427</span></div>
+    ${S.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
+    <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total())}</span></div></div>`;
+}
+function gastHTML() {
+  const ab = C.service === 'abholen';
+  if (S.screen === 'checkin') {
+    const can = C.place !== 'tisch' || S.table;
+    return `<div class="scroll"><div class="scr">
+      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Karte ' + S.card}</span>`)}
+      <section><div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
+      <h2 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h2>
+      <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
+      ${C.place === 'tisch'
+        ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(t => `<button type="button" class="chip" data-act="table" data-v="${t}" aria-pressed="${S.table === t}">${t}</button>`).join('')}</div></div>`
+        : `<div class="banner">Leg die Karte mit der <b>Nr. ${S.card}</b> sichtbar auf deinen Tisch. ${ab ? 'Darüber erkennt dich die Theke.' : 'So findet dich die Bedienung.'}</div>`}
+      <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(S.takt)}</div>
+      <div><div class="lbl">Erstes Getränk, ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</div>${menuList(S.first, 'first')}</div>
+      <ol class="how"><li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}.</li><li><b>Danach</b> alle ${S.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
+    </div></div>
+    <div class="dock"><button type="button" class="btn primary" data-act="start" ${can ? '' : 'disabled'}>${can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
+  }
+  if (S.screen === 'live') {
+    const n = drink(S.next), open = openOrders(), ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
+    let st = '';
+    if (ready.length) st += `<div class="state ready">${ICON.check}<span><b>Fertig!</b> Hol dein ${esc(ready.map(o => o.name).join(', '))} an der Theke ab.</span></div>`;
+    if (cooking.length) st += `<div class="state">${ICON.tray}<span><b>${ab ? 'Wird zubereitet:' : 'Unterwegs zu dir:'}</b> ${esc(cooking.map(o => o.name).join(', '))}</span></div>`;
+    return `<div class="scroll"><div class="scr">
+      <div class="top"><div class="cafe">${esc(C.name)}<small>${place()} · seit <span data-since></span></small></div><span class="pill live">Ticker läuft</span></div>
+      <div class="ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle class="trk" cx="100" cy="100" r="88"/><circle class="prg" id="prg" cx="100" cy="100" r="88" stroke-dasharray="${RC}" stroke-dashoffset="${RC}"/></svg>
+        <div class="c"><span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um <span data-nextclock></span> Uhr</span></div></div>
+      ${st}
+      <div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes</span><b>${esc(n[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(n[1])}</span></div><button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button></div>
+      ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(S.takt)}</div>` : ''}
+      ${bon(false)}
+      <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
+    </div></div>
+    <div class="dock"><div class="sum"><span>Bisher</span><b>${eur(total())}</b></div><button type="button" class="btn stop" data-act="sheet" data-v="confirm">Ticker stoppen</button></div>`;
+  }
+  if (S.screen === 'pay') {
+    const P = S.pay, k = P.method === 'kasse', cnt = S.orders.length;
+    const block = P.state === 'choose'
+      ? `<div><div class="lbl">Wie möchtest du zahlen?</div><div class="opts">${C.pay.map(p => `<button type="button" class="opt" data-act="paymethod" data-v="${p}"><span class="ic">${ICON[PAY[p].icon]}</span><span><b>${PAY[p].title}</b><span>${PAY[p].sub}</span></span><span class="radio"></span></button>`).join('')}</div></div>`
+      : `<div class="amt"><span>${k ? 'An der Kasse zahlen, Code #0427' : P.method === 'bar' ? 'Bitte bar bereithalten' : 'Kartenzahlung am Platz'}</span><b>${eur(total())}</b></div>
+        <ol class="steps">${k ? `<li class="done">Deine Übersicht ist an der Kasse</li><li class="now">Geh zur Kasse und nenn Code #0427</li><li>Bezahlt, Beleg kommt aus der Kasse</li>`
+          : `<li class="done">Die Theke weiß Bescheid</li><li class="now">Bedienung kommt zu ${place()}${P.method === 'karte' ? ' mit dem Terminal' : ''}</li><li>Bezahlt, Beleg kommt aus der Kasse</li>`}</ol>
+        ${C.pay.length > 1 ? '<button type="button" class="link" data-act="paychange">Andere Zahlart wählen</button>' : ''}`;
+    return `<div class="scroll"><div class="scr">${topBar('<span class="pill">Gestoppt</span>')}
+      <div><h2 class="title sm">Zeit zum Zahlen</h2><p class="lead" style="margin-top:6px">Du warst ${dur(S.stopAt - S.start)} hier und hattest ${cnt} ${cnt === 1 ? 'Getränk' : 'Getränke'}.</p></div>
+      ${bon(true)}<p class="note">Das ist deine Übersicht. Den Beleg bekommst du wie immer aus der Kasse des Cafés.</p>${block}</div></div>`;
+  }
+  return `<div class="scroll"><div class="scr center">${topBar('<span class="pill">Bezahlt</span>')}
+    <div class="ok-mark">${ICON.check}</div><div><h2 class="title">Bezahlt. Danke!</h2><p class="lead" style="margin-top:6px">${eur(S.paid.amount)}, ${PAY[S.paid.method].short}. Gib die Karte bitte an der Theke ab.</p></div>${bon(true)}</div></div>
+    <div class="dock"><button type="button" class="btn ghost" data-act="reset">Neuen Ticker starten</button></div>`;
+}
+function gastSheet() {
+  const el = document.getElementById('gastSheet');
+  if (!S.sheet || S.screen !== 'live') { el.innerHTML = ''; return; }
+  const ab = C.service === 'abholen'; let body = '';
+  if (S.sheet === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Gilt ab der nächsten Runde.</p>${menuList(S.next, 'pick')}`;
+  if (S.sheet === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extraPick')}`;
+  if (S.sheet === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
+    <div class="facts"><span>Sitzdauer<b>${dur(now() - S.start)}</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Summe<b>${eur(total())}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
+    <div class="row2"><button type="button" class="btn ghost" data-act="closesheet" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
+  const narrow = matchMedia('(max-width:900px)').matches;
+  el.innerHTML = `<div class="sheet-wrap${narrow ? ' fixed' : ''}" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${S.sheet !== 'confirm' ? '<button type="button" class="btn ghost" data-act="closesheet">Schließen</button>' : ''}</div></div>`;
+}
+
+/* ---------- Theke ---------- */
+function thekeHTML() {
+  const ab = C.service === 'abholen', open = openOrders(), done = S.orders.filter(o => o.status === 'erledigt').slice().reverse();
+  let r = 0; const round = {}; S.orders.forEach(o => { if (!o.extra) { r++; round[o.n] = r; } });
+  const [pl, pn] = place().split(' ');
+  const badge = `<div class="tisch">${pl}<b>${pn}</b></div>`;
+  const req = S.screen === 'pay' && S.pay.state === 'waiting'
+    ? `<section><div class="lbl">Will zahlen</div><div class="tk req">${badge}<div><b>${eur(total())}</b><span class="meta">${S.pay.method === 'kasse' ? 'Kommt zur Kasse, Code #0427' : S.pay.method === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected">Kassiert</button></div></div></section>` : '';
+  const ticket = S.screen === 'checkin' ? '<p class="empty">Noch kein Ticker aktiv. Starte einen auf dem Gast-Handy.</p>'
+    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' ? `Nächstes: ${esc(drink(S.next)[0])} in <span class="mono" data-cd></span>` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
+      <div class="facts"><span>Sitzt seit<b data-since></b></span><span>Takt<b>alle ${S.takt} Min</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Umsatz<b>${eur(total())}</b></span></div></div>`;
+  const html = `<div class="scroll"><div class="scr">
+    <div class="top"><div class="cafe">Theke<small>${esc(C.name)}</small></div><span class="pill mono" data-clock></span></div>
+    <div class="th-cols"><div>
+      ${req}
+      <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
+        ${open.length ? open.map(o => `<div class="tk${S.newIds.has(o.n) ? ' new' : ''}">${badge}<div><b>${esc(o.name)}</b><span class="meta">${o.extra ? 'Extra' : 'Runde ' + round[o.n]} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
+          <div class="btns">${ab && o.status === 'offen' ? `<button type="button" class="btn sm ghost" data-act="ready" data-v="${o.n}">Fertig melden</button>` : `<button type="button" class="btn sm primary" data-act="served" data-v="${o.n}">${ab ? 'Abgeholt' : 'Gebracht'}</button>`}</div></div>`).join('') : '<p class="empty">Gerade nichts offen.</p>'}
+        <p class="note">Jede Runde kommt wie ein Bestellbon. Ein Ton meldet neue Runden. In die Kasse wird gebucht wie bei jeder normalen Bestellung.</p>
+      </section></div>
+      <div><section><div class="lbl">Laptop-Ticker</div>${ticket}</section>
+        ${done.length ? `<section><div class="lbl">Erledigt</div>${done.slice(0, 6).map(o => `<div class="tk served">${badge}<div><b>${esc(o.name)}</b><span class="meta">${clock(o.at)} Uhr</span></div><span class="st st-done">${ab ? 'abgeholt' : 'serviert'}</span></div>`).join('')}</section>` : ''}
+      </div></div>
+  </div></div>`;
+  S.newIds.clear();
+  return html;
+}
+
+/* ---------- Umsatz-Rechner ---------- */
+const K = { guests: 8, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50, cogs: 25 };
+function avgPrice() { return Math.round(C.drinks.reduce((a, d) => a + d[1], 0) / C.drinks.length / 10) * 10; }
+function calc() {
+  const price = K.price || avgPrice();
+  const perGuest = Math.ceil(K.hours * 60 / K.takt - 1e-9);           // Runden während der Sitzdauer, erste sofort
+  const extraPerGuest = Math.max(0, perGuest - K.today);
+  const users = K.guests * K.share / 100;
+  const extraMonth = users * extraPerGuest * K.days;
+  const gross = extraMonth * price;                                     // Kassenpreise inkl. MwSt.
+  const net = gross / 1.19;
+  const margin = net * (1 - K.cogs / 100);
+  const fee = 5000;
+  const breakEven = Math.ceil(fee / (price / 1.19 * (1 - K.cogs / 100)));
+  return { price, perGuest, extraPerGuest, users, extraMonth, gross, net, margin, fee, result: margin - fee, breakEven };
+}
+function rng(id, label, val, min, max, step, fmt, hint) {
+  return `<div class="rng"><div class="rng-h"><label for="k-${id}">${label}</label><output id="o-${id}">${fmt(val)}</output></div><input type="range" id="k-${id}" data-k="${id}" min="${min}" max="${max}" step="${step}" value="${val}">${hint ? `<small>${hint}</small>` : ''}</div>`;
+}
+const F = {
+  guests: v => `${v} Gäste`, hours: v => `${String(v).replace('.', ',')} Std`, today: v => `${String(v).replace('.', ',')} Getränke`,
+  price: v => eur(v), takt: v => `alle ${v} Min`, days: v => `${v} Tage`, share: v => `${v} %`, cogs: v => `${v} %`
+};
+function calcHTML() {
+  if (!K.price) K.price = avgPrice();
+  return `<div class="calc">
+    <div class="panel"><h2>Was ist bei euch los?</h2>
+      ${rng('guests', 'Laptop-Gäste pro Tag', K.guests, 1, 40, 1, F.guests)}
+      ${rng('hours', 'So lange sitzen sie im Schnitt', K.hours, 1, 6, .5, F.hours)}
+      ${rng('today', 'Das bestellen sie heute pro Besuch', K.today, 1, 4, .5, F.today)}
+      ${rng('price', 'Durchschnittspreis pro Getränk', K.price, 200, 700, 10, F.price, 'Voreingestellt aus eurer Getränkeliste')}
+      ${rng('takt', 'Takt mit Ticker', K.takt, 30, 90, 15, F.takt)}
+      ${rng('share', 'So viele Laptop-Gäste machen mit', K.share, 10, 100, 10, F.share, 'Vorsichtig schätzen: nicht jeder nutzt den Ticker')}
+      ${rng('days', 'Öffnungstage im Monat', K.days, 10, 31, 1, F.days)}
+      ${rng('cogs', 'Wareneinsatz', K.cogs, 10, 50, 5, F.cogs, 'Anteil Bohnen, Milch, Becher am Nettopreis')}
+    </div>
+    <div class="panel" id="calcOut"></div>
+  </div>`;
+}
+function calcOut() {
+  const r = calc(), el = document.getElementById('calcOut'); if (!el) return;
+  const max = Math.max(K.today, r.perGuest, 1);
+  el.innerHTML = `<h2>Das bringt der Ticker</h2>
+    <div class="big"><span>Zusätzlicher Rohertrag pro Monat, nach Gebühr</span><b>${r.result >= 0 ? '+' : ''}${eur0(r.result)}</b></div>
+    <div class="bars">
+      <div class="bar"><span>Heute</span><div class="tr"><div class="fi" style="width:${K.today / max * 100}%"></div></div><b>${String(K.today).replace('.', ',')}</b></div>
+      <div class="bar t"><span>Mit Ticker</span><div class="tr"><div class="fi" style="width:${r.perGuest / max * 100}%"></div></div><b>${r.perGuest}</b></div>
+      <p class="note">Getränke pro Laptop-Gast und Besuch. Mit Ticker: ${String(K.hours).replace('.', ',')} Std Sitzdauer, erste Runde sofort, dann alle ${K.takt} Min.</p>
+    </div>
+    <div class="lines">
+      <div class="ln"><span>Zusätzliche Getränke pro Monat</span><b>${Math.round(r.extraMonth).toLocaleString('de-DE')}</b></div>
+      <div class="ln"><span>Mehrumsatz (Kassenpreise inkl. MwSt.)</span><b>${eur0(r.gross)}</b></div>
+      <div class="ln"><span>Davon netto (ohne 19 % MwSt.)</span><b>${eur0(r.net)}</b></div>
+      <div class="ln"><span>Nach ${K.cogs} % Wareneinsatz</span><b>${eur0(r.margin)}</b></div>
+      <div class="ln neg"><span>Caffe Karte</span><b>− 50 €</b></div>
+      <div class="ln tot"><span>Bleibt übrig</span><b>${eur0(r.result)}</b></div>
+    </div>
+    <p class="note">Die Gebühr ist nach <b>${r.breakEven} zusätzlichen Getränken im Monat</b> drin${r.breakEven <= K.days ? ', also weniger als einem pro Öffnungstag' : `, also etwa ${Math.ceil(r.breakEven / K.days)} pro Öffnungstag`}. Schätzung mit euren Angaben, ohne Personal- und Fixkosten.</p>`;
+}
+
+/* ---------- Einrichten ---------- */
+const inFrame = (() => { try { return window.top !== window.self; } catch (_) { return true; } })();
+function setupSheet() {
+  const el = document.getElementById('sheet');
+  el.innerHTML = `<div class="sheet-wrap fixed" data-act="closesetup"><div class="sheet" role="dialog" aria-modal="true" aria-label="Café einrichten"><div class="grab"></div>
+    <h2>Café für die Vorführung</h2>
+    <div class="grid2"><div class="fld"><label for="s-name">Name</label><input type="text" id="s-name" value="${esc(C.name)}"></div><div class="fld"><label for="s-ort">Ort</label><input type="text" id="s-ort" value="${esc(C.ort)}"></div></div>
+    <div class="fld"><span class="l">Getränke und Preise</span><div class="ed" id="s-drinks">${C.drinks.map(drinkRow).join('')}</div><button type="button" class="link" data-act="addDrink">+ Getränk</button></div>
+    <div class="fld"><span class="l">Service</span><div class="checks"><label><input type="radio" name="s-service" value="bringen" ${C.service === 'bringen' ? 'checked' : ''}>Bedienung bringt</label><label><input type="radio" name="s-service" value="abholen" ${C.service === 'abholen' ? 'checked' : ''}>Gast holt ab</label></div></div>
+    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Kartennummer ist der Platz</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast wählt Tischnummer</label></div></div>
+    <div class="fld"><span class="l">Zahlarten</span><div class="checks">${Object.keys(PAY).map(p => `<label><input type="checkbox" name="s-pay" value="${p}" ${C.pay.includes(p) ? 'checked' : ''}>${PAY[p].title}</label>`).join('')}</div></div>
+    <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[30, 45, 60, 90].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
+    <div class="row2"><button type="button" class="btn primary" data-act="saveSetup" style="flex:1">Übernehmen</button>${inFrame ? '' : '<button type="button" class="btn ghost" data-act="copyLink" style="flex:1">Link für dieses Café kopieren</button>'}</div>
+    <textarea id="linkOut" hidden readonly style="width:100%;min-height:70px;font:12px var(--f-mono);padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--surface)"></textarea>
+    <button type="button" class="link" data-act="defaults">Auf Standard zurücksetzen</button>
+  </div></div>`;
+}
+function drinkRow(d) { return `<div class="ed-row"><input aria-label="Getränk" value="${esc(d[0])}"><input class="mono" aria-label="Preis in Euro" inputmode="decimal" value="${(d[1] / 100).toFixed(2).replace('.', ',')}"><button type="button" class="x" data-act="delDrink" aria-label="Entfernen">×</button></div>`; }
+function readSetup() {
+  const v = n => [...document.querySelectorAll(`input[name="${n}"]:checked`)].map(i => i.value);
+  return clean({
+    name: document.getElementById('s-name').value, ort: document.getElementById('s-ort').value,
+    drinks: [...document.querySelectorAll('#s-drinks .ed-row')].map(r => { const [a, b] = r.querySelectorAll('input'); return [a.value, Math.round(parseFloat(b.value.replace(',', '.')) * 100) || 0]; }),
+    service: v('s-service')[0], place: v('s-place')[0], pay: v('s-pay'), takte: v('s-takt').map(Number)
+  });
+}
+
+/* ---------- Render ---------- */
+function render() {
+  document.getElementById('cafeTitle').textContent = C.name;
+  document.querySelectorAll('[data-act="tab"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.tab)));
+  document.getElementById('demoView').hidden = S.tab !== 'demo';
+  document.getElementById('calcView').hidden = S.tab !== 'calc';
+  if (S.tab === 'calc') { const v = document.getElementById('calcView'); if (!v.dataset.ready) { v.innerHTML = calcHTML(); v.dataset.ready = '1'; } calcOut(); return; }
+  document.querySelectorAll('[data-act="pane"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.pane)));
+  document.getElementById('stage').dataset.show = S.pane;
+  const cnt = openOrders().length + (S.screen === 'pay' && S.pay.state === 'waiting' ? 1 : 0);
+  const bd = document.getElementById('badge'); bd.textContent = cnt; bd.hidden = !cnt;
+  const g = document.getElementById('gast'), t = document.getElementById('theke');
+  const gs = g.querySelector('.scroll')?.scrollTop || 0, ts = t.querySelector('.scroll')?.scrollTop || 0, gk = g.dataset.k;
+  g.innerHTML = gastHTML(); t.innerHTML = thekeHTML(); g.dataset.k = S.screen;
+  if (gk === S.screen && g.querySelector('.scroll')) g.querySelector('.scroll').scrollTop = gs;
+  if (t.querySelector('.scroll')) t.querySelector('.scroll').scrollTop = ts;
+  gastSheet(); update();
+}
+function update() {
+  document.querySelectorAll('[data-clock]').forEach(el => el.textContent = clock(now()) + ' Uhr');
+  document.querySelectorAll('[data-since]').forEach(el => el.textContent = S.start ? dur((S.stopAt || now()) - S.start) : '');
+  document.querySelectorAll('[data-ago]').forEach(el => { const m = Math.floor((now() - +el.dataset.ago) / MIN); el.textContent = m < 1 ? 'gerade eben' : m >= 10 ? `seit ${m} Min, überfällig` : `vor ${m} Min`; el.classList.toggle('late', m >= 10); });
+  if (S.screen === 'live') {
+    const left = S.nextAt - now(), period = S.nextAt - S.lastAuto;
+    document.querySelectorAll('[data-cd]').forEach(el => el.textContent = cd(left));
+    document.querySelectorAll('[data-nextclock]').forEach(el => el.textContent = clock(S.nextAt));
+    const p = document.getElementById('prg'); if (p) p.style.strokeDashoffset = RC * Math.min(1, Math.max(0, left / period));
+  }
+}
+
+/* ---------- Bedienung ---------- */
+function act(a, v, el) {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) {} }
+  if (actx && actx.state === 'suspended') actx.resume();
+  switch (a) {
+    case 'tab': S.tab = v; break;
+    case 'pane': S.pane = v; break;
+    case 'setup': setupSheet(); return;
+    case 'closesetup': document.getElementById('sheet').innerHTML = ''; return;
+    case 'addDrink': document.getElementById('s-drinks').insertAdjacentHTML('beforeend', drinkRow(['', 0])); document.querySelector('#s-drinks .ed-row:last-child input').focus(); return;
+    case 'delDrink': el.closest('.ed-row').remove(); return;
+    case 'defaults': C = clean({}); saveCfg(); setupSheet(); return;
+    case 'saveSetup': C = readSetup(); saveCfg(); K.price = 0; const cv = document.getElementById('calcView'); cv.dataset.ready = ''; document.getElementById('sheet').innerHTML = ''; reset(); toast('Übernommen'); break;
+    case 'copyLink': {
+      const c = readSetup(), url = location.origin + location.pathname + '?d=' + encode(c), out = document.getElementById('linkOut');
+      const fb = () => { out.hidden = false; out.value = url; out.focus(); out.select(); toast('Link markiert, jetzt kopieren'); };
+      try { navigator.clipboard.writeText(url).then(() => toast('Link kopiert'), fb); } catch (_) { fb(); }
+      return;
+    }
+    case 'ff': {
+      // Beim Vorspulen gilt: was älter als 5 Minuten ist, hat die Bedienung längst gebracht
+      skew += +v * MIN; tick();
+      S.orders.forEach(o => { if (o.status !== 'erledigt' && now() - o.at > 5 * MIN) o.status = 'erledigt'; });
+      render(); return;
+    }
+    case 'reset': reset(); break;
+    case 'table': S.table = +v; break;
+    case 'takt': S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
+    case 'first': S.first = +v; S.next = +v; break;
+    case 'start': S.start = now(); S.lastAuto = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live'; addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); break;
+    case 'sheet': S.sheet = v; gastSheet(); return;
+    case 'closesheet': S.sheet = null; gastSheet(); return;
+    case 'pick': S.next = +v; S.sheet = null; toast('Gilt ab der nächsten Runde'); break;
+    case 'extraPick': addOrder(+v, true); S.sheet = null; break;
+    case 'stop': S.sheet = null; S.stopAt = now(); S.screen = 'pay'; S.pay = C.pay.length === 1 ? { method: C.pay[0], state: 'waiting' } : { method: null, state: 'choose' }; break;
+    case 'paymethod': S.pay = { method: v, state: 'waiting' }; break;
+    case 'paychange': S.pay = { method: null, state: 'choose' }; break;
+    case 'ready': { const o = S.orders.find(x => x.n === +v); if (o) { o.status = 'fertig'; toast(`Gast-Handy meldet: ${o.name} abholen`); } break; }
+    case 'served': { const o = S.orders.find(x => x.n === +v); if (o) o.status = 'erledigt'; break; }
+    case 'collected': S.paid = { amount: total(), method: S.pay.method }; S.screen = 'done'; toast('Bezahlt. Karte ist wieder frei'); break;
+  }
+  render();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  if (b.classList.contains('sheet-wrap') && e.target !== b) return;
+  act(b.dataset.act, b.dataset.v, b);
+});
+document.addEventListener('input', e => {
+  const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+  K[k] = +e.target.value; const o = document.getElementById('o-' + k); if (o) o.textContent = F[k](K[k]); calcOut();
+});
+addEventListener('resize', () => { if (S.sheet) gastSheet(); });
+render();
+</script>
+
+</body>
+</html>
