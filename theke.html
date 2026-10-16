@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1D5A46">
+<title>Theke · Caffe Karte</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/demo.css">
+<style>
+body{padding-block:16px 96px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.conn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap}
+.conn::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.conn.off::before{background:var(--bad)}
+.board{background:var(--bg);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:0 30px 60px -34px var(--scrim)}
+.th-cols{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
+.start{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.start .step{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:6px}
+.start .step i{font:600 12px/22px var(--f-mono);font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);text-align:center}
+.start .step b{font-size:15px}
+.start .step span{font-size:13px;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.qcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center}
+.qcard .qr{width:180px;max-width:100%;aspect-ratio:1;background:#fff;border-radius:10px;padding:8px}
+.qcard .qr svg{width:100%;height:100%;display:block}
+.qcard code{font:12px var(--f-mono);word-break:break-all;color:var(--muted)}
+.ffbar{position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--bg);border-top:1px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.ffbar .in{max-width:1180px;margin:0 auto;display:flex;gap:8px 12px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.ffbar .row{display:flex;gap:6px;flex-wrap:wrap}
+.cnt{font:600 12px var(--f-mono);color:var(--muted)}
+.steps-ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <img class="mark" src="icon.svg" alt="">
+      <div class="brand-t"><small>Caffe Karte · Theke</small><h1 id="cafeTitle">Dein Café</h1></div>
+      <span class="demo-pill">Vorführung</span>
+    </div>
+    <div class="tools">
+      <span class="conn off" id="conn">Verbinde …</span>
+      <button type="button" class="gear" data-act="cards">Karten</button>
+      <button type="button" class="gear" data-act="setup">Einrichten</button>
+    </div>
+  </header>
+  <section id="intro" class="start" hidden></section>
+  <main class="board" id="board"></main>
+</div>
+<div class="ffbar"><div class="in">
+  <span id="soundHint">Tippe auf „Ton an“, damit neue Bestellungen piepen.</span>
+  <div class="row">
+    <button type="button" class="mini" data-act="sound" id="soundBtn">Ton an</button>
+    <button type="button" class="mini" data-act="ff" data-v="15">+15 Min</button>
+    <button type="button" class="mini" data-act="ff" data-v="60">+1 Std</button>
+    <button type="button" class="mini" data-act="reset">Neue Vorführung</button>
+  </div>
+</div></div>
+<div id="sheet"></div>
+
+<script src="vendor/qrcode.js"></script>
+<script src="assets/live.js"></script>
+<script>
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, decode, publish, subscribe, total, unlockAudio, beep } = CKL;
+const MIN = 60000;
+
+/* ---------- Fester Vorführ-Code: steckt im Link der Karten ---------- */
+let topic = qs.get('k');
+if (!TOPIC_RE.test(topic || '')) topic = store.get('ck-live-topic');
+if (!TOPIC_RE.test(topic || '')) topic = 'ckd-' + rid(18);
+store.set('ck-live-topic', topic);
+if (qs.get('k') !== topic) { const u = new URL(location.href); u.searchParams.set('k', topic); history.replaceState(null, '', u); }
+const KEY = 'ck-live-state-' + topic;
+
+/* ---------- Zustand (diese Seite ist die Stelle, die den Takt rechnet) ---------- */
+let T = store.get(KEY) || { cfg: clean({}), tickets: {}, skew: 0, acks: [], cards: 2, no: 100 };
+T.cfg = clean(T.cfg);
+if (qs.get('d')) { try { T.cfg = decode(qs.get('d')); } catch (_) { toast('Der Café-Link ist ungültig, Standard bleibt'); } }
+const now = () => Date.now() + T.skew;
+const save = () => store.set(KEY, T);
+const newIds = new Set();
+
+let pubTimer = null, connected = false;
+function publishState() {
+  clearTimeout(pubTimer);
+  pubTimer = setTimeout(async () => {
+    const msg = { type: 'state', pubAt: Date.now(), now: now(), cfg: T.cfg, tickets: T.tickets, acks: T.acks.slice(-40) };
+    let body = JSON.stringify(msg);
+    // Nachrichten über ~4 KB nimmt der Vermittler nicht als Text an: erledigte Ticker weglassen
+    if (body.length > 3800) { const t = {}; for (const [n, x] of Object.entries(T.tickets)) if (x.screen !== 'done') t[n] = x; msg.tickets = t; }
+    try { await publish(topic, msg); setConn(true); } catch (_) { setConn(false); }
+  }, 200);
+}
+function setConn(on) { connected = on; const el = document.getElementById('conn'); el.className = 'conn' + (on ? '' : ' off'); el.textContent = on ? 'Verbunden' : 'Keine Verbindung'; }
+
+function addOrder(t, i, extra, at) {
+  const d = T.cfg.drinks[i] || T.cfg.drinks[0];
+  t.k = (t.k || 0) + 1;
+  t.orders.push({ k: t.k, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
+  newIds.add(t.no + ':' + t.k); beep();
+}
+function stopTicket(t, reason) { t.screen = 'pay'; t.stopAt = now(); t.reason = reason || null; t.pay = T.cfg.pay.length === 1 ? { m: T.cfg.pay[0], st: 'waiting' } : { m: null, st: 'choose' }; }
+const ticketList = () => Object.entries(T.tickets).map(([n, t]) => ({ n: +n, t })).sort((a, b) => a.t.start - b.t.start);
+
+/* ---------- Befehle vom Gast-Handy ---------- */
+function onCmd(m) {
+  if (m.type === 'hello') return publishState();
+  if (m.type !== 'cmd' || typeof m.cid !== 'string') return;
+  if (T.acks.includes(m.cid)) return publishState();       // schon erledigt, nur Stand erneut senden
+  const n = Math.round(+m.n);
+  if (!(n >= 1 && n <= 20)) return;
+  const d = T.cfg.drinks, okItem = i => Number.isInteger(i) && i >= 0 && i < d.length;
+  let t = T.tickets[n], changed = true;
+  switch (m.op) {
+    case 'start': {
+      if (t && (t.screen === 'live' || t.screen === 'pay')) break;
+      if (!T.cfg.takte.includes(m.takt) || !okItem(m.item)) break;
+      const tisch = Math.round(+m.table);
+      const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Karte ${n}`;
+      const at = now();
+      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, start: at, lastAuto: at, nextAt: at + m.takt * MIN, orders: [], k: 0 };
+      addOrder(t, m.item, false, at);
+      toast(`${place} startet: ${d[m.item][0]}`);
+      break;
+    }
+    case 'next': if (t && t.screen === 'live' && okItem(m.item)) t.next = m.item; break;
+    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
+    case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { addOrder(t, m.item, true); toast(`${t.place}: extra ${d[m.item][0]}`); } break;
+    case 'stop': if (t && t.screen === 'live') { stopTicket(t); beep(); } break;
+    case 'pay': if (t && t.screen === 'pay' && T.cfg.pay.includes(m.m)) { t.pay = { m: m.m, st: 'waiting' }; beep(); toast(`${t.place} will zahlen`); } break;
+    case 'paychange': if (t && t.screen === 'pay') t.pay = { m: null, st: 'choose' }; break;
+    case 'clear': if (t && t.screen === 'done') delete T.tickets[n]; break;
+    default: changed = false;
+  }
+  T.acks.push(m.cid); T.acks = T.acks.slice(-40);
+  if (changed) { save(); render(); }
+  publishState();
+}
+
+/* ---------- Takt ---------- */
+setInterval(() => {
+  let ch = false;
+  for (const { t } of ticketList()) {
+    if (t.screen !== 'live') continue;
+    while (now() >= t.nextAt) { const at = t.nextAt; t.lastAuto = at; addOrder(t, t.next, false, at); t.nextAt = at + t.takt * MIN; ch = true; }
+  }
+  if (ch) { save(); render(); publishState(); toast('Neue Runde'); }
+  tick();
+}, 500);
+// Stand regelmäßig erneut senden, falls ein Handy kurz offline war
+setInterval(publishState, 30000);
+
+/* ---------- Anzeige ---------- */
+function render() {
+  document.getElementById('cafeTitle').textContent = T.cfg.name;
+  const list = ticketList();
+  const intro = document.getElementById('intro');
+  intro.hidden = list.length > 0;
+  intro.innerHTML = `<div class="step"><i>1</i><b>Café einrichten</b><span>Name und Getränke unter „Einrichten“ eintragen.</span></div>
+    <div class="step"><i>2</i><b>Karte scannen lassen</b><span>Der Inhaber hält sein Handy an deine Karte oder scannt den QR-Code.</span></div>
+    <div class="step"><i>3</i><b>Hier zuschauen</b><span>Jede Bestellung erscheint sofort hier und piept.</span></div>`;
+  const ab = T.cfg.service === 'abholen';
+  const badge = place => { const [a, b] = place.split(' '); return `<div class="tisch">${esc(a)}<b>${esc(b)}</b></div>`; };
+  const open = [], done = [];
+  list.forEach(({ n, t }) => { let r = 0; t.orders.forEach(o => { if (!o.extra) r++; const row = { n, t, o, round: o.extra ? 'Extra' : 'Runde ' + r }; (o.status === 'erledigt' ? done : open).push(row); }); });
+  open.sort((a, b) => a.o.at - b.o.at); done.sort((a, b) => b.o.at - a.o.at);
+  const pay = list.filter(x => x.t.screen === 'pay');
+  document.getElementById('board').innerHTML = `
+    <div class="top" style="margin-bottom:14px"><div class="cafe">Theke<small>${esc(T.cfg.name)}${T.cfg.ort ? ' · ' + esc(T.cfg.ort) : ''}</small></div><span class="pill mono" data-clock></span></div>
+    <div class="th-cols"><div>
+      ${pay.length ? `<section><div class="lbl">Will zahlen (${pay.length})</div>${pay.map(({ n, t }) => `<div class="tk req">${badge(t.place)}<div><b>${eur(total(t))}</b><span class="meta">${t.pay.st === 'choose' ? 'Wählt gerade die Zahlart' : t.pay.m === 'kasse' ? `Kommt zur Kasse, Code #${esc(t.no)}` : t.pay.m === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected" data-n="${n}">Kassiert</button></div></div>`).join('')}</section>` : ''}
+      <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
+        ${open.length ? open.map(({ n, t, o, round }) => `<div class="tk${newIds.has(t.no + ':' + o.k) ? ' new' : ''}">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${round} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
+          <div class="btns">${ab && o.status === 'offen' ? `<button type="button" class="btn sm ghost" data-act="ready" data-n="${n}" data-k="${o.k}">Fertig melden</button>` : `<button type="button" class="btn sm primary" data-act="served" data-n="${n}" data-k="${o.k}">${ab ? 'Abgeholt' : 'Gebracht'}</button>`}</div></div>`).join('') : '<p class="empty">Gerade nichts offen.</p>'}
+        <p class="note">Jede Runde kommt wie ein Bestellbon. Im echten Betrieb wird sie wie jede normale Bestellung in die Kasse gebucht.</p>
+      </section></div>
+      <div>
+        <section><div class="lbl">Laptop-Ticker (${list.filter(x => x.t.screen === 'live').length} aktiv)</div>
+          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' ? `Nächstes: ${esc((T.cfg.drinks[t.next] || T.cfg.drinks[0])[0])} in <span class="mono" data-cd="${t.nextAt}"></span>` : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
+            <div class="facts"><span>Takt<b>alle ${t.takt} Min</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
+            ${t.screen === 'live' ? `<div class="row2"><button type="button" class="btn sm ghost" data-act="stopT" data-n="${n}">Ticker beenden</button></div>` : ''}</div>`).join('') : '<p class="empty">Noch kein Ticker. Lass eine Karte scannen.</p>'}
+        </section>
+        ${done.length ? `<section><div class="lbl">Erledigt</div>${done.slice(0, 6).map(({ t, o }) => `<div class="tk served">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${clock(o.at)} Uhr</span></div><span class="st st-done">${ab ? 'abgeholt' : 'serviert'}</span></div>`).join('')}</section>` : ''}
+      </div></div>`;
+  newIds.clear(); tick();
+}
+function tick() {
+  document.querySelectorAll('[data-clock]').forEach(el => el.textContent = clock(now()) + ' Uhr');
+  document.querySelectorAll('[data-since]').forEach(el => el.textContent = dur((+el.dataset.stop || now()) - +el.dataset.since));
+  document.querySelectorAll('[data-cd]').forEach(el => el.textContent = cd(+el.dataset.cd - now()));
+  document.querySelectorAll('[data-ago]').forEach(el => { const m = Math.floor((now() - +el.dataset.ago) / MIN); el.textContent = m < 1 ? 'gerade eben' : m >= 10 ? `seit ${m} Min, überfällig` : `vor ${m} Min`; el.classList.toggle('late', m >= 10); });
+}
+
+/* ---------- Karten und Einrichten ---------- */
+function cardUrl(n) {
+  const u = new URL('karte.html', location.href); u.search = '';
+  u.searchParams.set('k', topic); u.searchParams.set('n', n);
+  if (qs.get('relay')) u.searchParams.set('relay', qs.get('relay'));
+  return u.toString();
+}
+function qrSvg(text) { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+function sheet(html, label) {
+  document.getElementById('sheet').innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}" style="max-width:760px"><div class="grab"></div>${html}<button type="button" class="btn ghost" data-act="close">Schließen</button></div></div>`;
+}
+function cardsSheet() {
+  const ns = Array.from({ length: T.cards }, (_, i) => i + 1);
+  sheet(`<h2>Deine Karten</h2>
+    <p class="note">Diese Links bleiben immer gleich. Schreib sie einmal auf deine NFC-Karten, dann funktionieren sie in jedem Café. Welches Café und welche Getränke angezeigt werden, stellst du hier unter „Einrichten“ ein.</p>
+    <div class="cards">${ns.map(n => `<div class="qcard"><b>Karte ${n}</b><div class="qr">${qrSvg(cardUrl(n))}</div><code>${esc(cardUrl(n))}</code><button type="button" class="mini" data-act="copy" data-v="${n}">Link kopieren</button></div>`).join('')}</div>
+    <div class="row2" style="align-items:center"><span class="note">Anzahl Karten</span><button type="button" class="mini" data-act="cardsN" data-v="-1">−</button><b class="mono">${T.cards}</b><button type="button" class="mini" data-act="cardsN" data-v="1">+</button></div>
+    <div><div class="lbl">Link auf die NFC-Karte schreiben</div><ol class="steps-ol">
+      <li>App „NFC Tools“ aufs Handy laden (iPhone und Android, kostenlos).</li>
+      <li>„Schreiben“ → „Datensatz hinzufügen“ → „URL / URI“ → Link von Karte 1 einfügen.</li>
+      <li>„Schreiben“ tippen und die Karte ans Handy halten. Für Karte 2 genauso.</li>
+      <li>Zum Testen das Handy an die Karte halten: Die Gast-Seite öffnet sich.</li></ol></div>
+    <p class="note">Wichtig: Die Theke-Seite immer mit diesem Link öffnen, sonst finden die Karten sie nicht:<br><code style="word-break:break-all">${esc(location.href)}</code></p>`, 'Karten');
+}
+function drinkRow(d) { return `<div class="ed-row"><input aria-label="Getränk" value="${esc(d[0])}"><input class="mono" aria-label="Preis in Euro" inputmode="decimal" value="${(d[1] / 100).toFixed(2).replace('.', ',')}"><button type="button" class="x" data-act="delDrink" aria-label="Entfernen">×</button></div>`; }
+function setupSheet() {
+  const C = T.cfg;
+  sheet(`<h2>Café einrichten</h2>
+    <div class="grid2"><div class="fld"><label for="s-name">Name</label><input type="text" id="s-name" value="${esc(C.name)}"></div><div class="fld"><label for="s-ort">Ort</label><input type="text" id="s-ort" value="${esc(C.ort)}"></div></div>
+    <div class="fld"><span class="l">Getränke und Preise</span><div class="ed" id="s-drinks">${C.drinks.map(drinkRow).join('')}</div><button type="button" class="link" data-act="addDrink">+ Getränk</button></div>
+    <div class="fld"><span class="l">Service</span><div class="checks"><label><input type="radio" name="s-service" value="bringen" ${C.service === 'bringen' ? 'checked' : ''}>Bedienung bringt</label><label><input type="radio" name="s-service" value="abholen" ${C.service === 'abholen' ? 'checked' : ''}>Gast holt ab</label></div></div>
+    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Kartennummer ist der Platz</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast wählt Tischnummer</label></div></div>
+    <div class="fld"><span class="l">Zahlarten</span><div class="checks">${Object.keys(PAY).map(p => `<label><input type="checkbox" name="s-pay" value="${p}" ${C.pay.includes(p) ? 'checked' : ''}>${PAY[p].title}</label>`).join('')}</div></div>
+    <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[30, 45, 60, 90].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
+    <button type="button" class="btn primary" data-act="saveSetup">Übernehmen</button>
+    <p class="note">Laufende Ticker behalten ihre Getränke. Neue Einstellungen gelten für neue Ticker.</p>`, 'Café einrichten');
+}
+function readSetup() {
+  const v = n => [...document.querySelectorAll(`input[name="${n}"]:checked`)].map(i => i.value);
+  return clean({
+    ...T.cfg,
+    name: document.getElementById('s-name').value, ort: document.getElementById('s-ort').value,
+    drinks: [...document.querySelectorAll('#s-drinks .ed-row')].map(r => { const [a, b] = r.querySelectorAll('input'); return [a.value, Math.round(parseFloat(b.value.replace(',', '.')) * 100) || 0]; }),
+    service: v('s-service')[0], place: v('s-place')[0], pay: v('s-pay'), takte: v('s-takt').map(Number)
+  });
+}
+
+/* ---------- Klicks ---------- */
+let wakeLock = null;
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  if (b.classList.contains('sheet-wrap') && e.target !== b) return;
+  unlockAudio();
+  const a = b.dataset.act, n = +b.dataset.n, t = T.tickets[n];
+  const confirmTwice = () => { if (b.dataset.confirm === '1') return true; b.dataset.confirm = '1'; const old = b.textContent; b.textContent = 'Sicher? Nochmal tippen'; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = old; } }, 3000); return false; };
+  switch (a) {
+    case 'close': document.getElementById('sheet').innerHTML = ''; return;
+    case 'cards': return cardsSheet();
+    case 'setup': return setupSheet();
+    case 'cardsN': T.cards = Math.min(10, Math.max(1, T.cards + +b.dataset.v)); save(); return cardsSheet();
+    case 'copy': { const url = cardUrl(+b.dataset.v); try { await navigator.clipboard.writeText(url); toast('Link kopiert'); } catch (_) { toast('Kopieren ging nicht. Link bitte markieren.'); } return; }
+    case 'addDrink': document.getElementById('s-drinks').insertAdjacentHTML('beforeend', drinkRow(['', 0])); document.querySelector('#s-drinks .ed-row:last-child input').focus(); return;
+    case 'delDrink': b.closest('.ed-row').remove(); return;
+    case 'saveSetup': T.cfg = readSetup(); document.getElementById('sheet').innerHTML = ''; toast('Übernommen. Die Handys zeigen es sofort.'); break;
+    case 'sound': {
+      beep(); document.getElementById('soundBtn').textContent = 'Ton ist an'; document.getElementById('soundHint').textContent = 'Neue Bestellungen piepen. Der Bildschirm bleibt an.';
+      try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nicht unterstützt */ }
+      return;
+    }
+    case 'ff': {
+      T.skew += +b.dataset.v * MIN;
+      // Was älter als 5 Minuten ist, hat die Bedienung in der Zwischenzeit gebracht
+      for (const { t: x } of ticketList()) x.orders.forEach(o => { if (o.status !== 'erledigt' && now() - o.at > 5 * MIN) o.status = 'erledigt'; });
+      toast(`${b.dataset.v === '60' ? 'Eine Stunde' : '15 Minuten'} vorgespult`);
+      break;
+    }
+    case 'reset': if (!confirmTwice()) return; T.tickets = {}; T.skew = 0; toast('Neue Vorführung. Die Handys starten neu.'); break;
+    case 'served': case 'ready': {
+      const o = t && t.orders.find(x => x.k === +b.dataset.k); if (!o) return;
+      o.status = a === 'ready' ? 'fertig' : 'erledigt';
+      if (a === 'ready') toast('Das Gast-Handy meldet: abholen');
+      break;
+    }
+    case 'stopT': if (!t || !confirmTwice()) return; stopTicket(t, 'Die Theke hat deinen Ticker beendet.'); break;
+    case 'collected': {
+      if (!t || !confirmTwice()) return;
+      if (t.screen === 'live') stopTicket(t);
+      t.screen = 'done'; t.paidBy = t.pay.m || T.cfg.pay[0]; t.paidAt = now();
+      toast(`Bezahlt. ${t.place} ist wieder frei`);
+      break;
+    }
+    default: return;
+  }
+  save(); render(); publishState();
+});
+document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible' && wakeLock) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* egal */ } } });
+
+/* ---------- Start ---------- */
+subscribe(topic, { onMsg: onCmd, onStatus: on => { if (on) publishState(); else setConn(false); } });
+save(); render(); publishState();
+</script>
+</body>
+</html>

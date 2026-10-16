@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1D5A46">
+<title>Caffe Karte</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/demo.css">
+<style>
+body{padding-left:0;padding-right:0;padding-block:0;background:var(--bg)}
+.page{max-width:480px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column}
+.page .scr{flex:1;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-top:max(20px,env(safe-area-inset-top,0px))}
+.page .dock{position:sticky;bottom:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+.wait{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;flex:1;padding:40px 24px}
+.spin{width:36px;height:36px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.btn.busy{opacity:.6;pointer-events:none}
+.demo-tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--crema)}
+</style>
+</head>
+<body>
+<main class="page" id="app"><div class="wait"><div class="spin"></div><p class="lead">Verbinde mit dem Café …</p></div></main>
+<div id="sheet"></div>
+<script src="assets/live.js"></script>
+<script>
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, ICON, total, bon } = CKL;
+const RC = 2 * Math.PI * 88;
+const topic = qs.get('k'), n = Math.round(+qs.get('n'));
+const app = document.getElementById('app');
+
+let S = null, offset = 0, sheetOpen = null, waitTimer = null;
+const ui = store.get(`ck-live-ui-${topic}-${n}`) || { table: null, takt: null, item: 0 };
+const now = () => Date.now() + offset;
+const pending = new Map();   // cid -> { msg, tries, timer, btn }
+
+if (!TOPIC_RE.test(topic || '') || !(n >= 1 && n <= 20)) {
+  app.innerHTML = '<div class="wait"><h1 class="title sm">Diese Karte ist nicht gültig</h1><p class="lead">Bitte scanne die Karte noch einmal.</p></div>';
+} else start();
+
+function start() {
+  subscribe(topic, {
+    since: '2h',
+    onMsg: m => {
+      if (m.type !== 'state' || !(m.pubAt > (S ? S.pubAt : 0))) return;
+      const prev = S; S = m; offset = m.now - Date.now();
+      clearTimeout(waitTimer);
+      for (const [cid, p] of pending) if (m.acks && m.acks.includes(cid)) { clearTimeout(p.timer); pending.delete(cid); }
+      notify(prev); render();
+    },
+    onStatus: on => { if (on) send({ type: 'hello' }); }
+  });
+  waitTimer = setTimeout(() => { if (!S) app.innerHTML = `<div class="wait"><div class="spin"></div><p class="lead">Die Theke antwortet noch nicht.</p><p class="note">Ist die Theke-Seite auf dem Laptop geöffnet und online?</p></div>`; }, 6000);
+}
+
+/* ---------- Senden mit Wiederholung, bis die Theke bestätigt ---------- */
+function send(msg) { return publish(topic, msg).catch(() => toast('Keine Internetverbindung. Bitte nochmal versuchen.')); }
+function cmd(op, extra = {}) {
+  const cid = rid(8), msg = { type: 'cmd', cid, n, op, ...extra };
+  const p = { msg, tries: 0 };
+  const attempt = () => {
+    p.tries++; send(msg);
+    p.timer = setTimeout(() => {
+      if (!pending.has(cid)) return;
+      if (p.tries < 3) attempt();
+      else { pending.delete(cid); toast('Die Theke antwortet nicht. Ist sie auf dem Laptop offen?'); render(); }
+    }, 3500);
+  };
+  pending.set(cid, p); attempt(); render();
+}
+const busy = () => pending.size > 0;
+
+/* ---------- Hinweise bei Änderungen ---------- */
+function notify(prev) {
+  if (!prev) return;
+  const a = prev.tickets && prev.tickets[n], b = S.tickets && S.tickets[n];
+  if (!a || !b || a.no !== b.no) return;
+  const was = new Set(a.orders.filter(o => o.status === 'fertig').map(o => o.k));
+  const ready = b.orders.filter(o => o.status === 'fertig' && !was.has(o.k));
+  if (ready.length) { toast(`Fertig: ${ready.map(o => o.name).join(', ')} abholen`); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (_) { /* egal */ } }
+  else if (b.orders.length > a.orders.length) toast(`Neue Runde: ${b.orders[b.orders.length - 1].name}`);
+}
+
+/* ---------- Anzeige ---------- */
+function topBar(right) { return `<div class="top"><div class="cafe">${esc(S.cfg.name)}${S.cfg.ort ? `<small>${esc(S.cfg.ort)}</small>` : ''}</div>${right}</div>`; }
+function menuList(sel, act) { return `<div class="menu">${S.cfg.drinks.map((d, i) => `<button type="button" class="item" data-act="${act}" data-v="${i}" aria-pressed="${sel === i}"><b>${esc(d[0])}</b><span class="pr">${eur(d[1])}</span><span class="radio"></span></button>`).join('')}</div>`; }
+function taktBlock(cur) {
+  const T = S.cfg.takte;
+  if (T.length === 1) return `<div class="card" style="justify-content:space-between"><span>Vom Café festgelegt</span><b class="mono">${T[0]} Min</b></div>`;
+  return `<div class="chips" role="group" aria-label="Takt">${T.map(t => `<button type="button" class="chip" data-act="takt" data-v="${t}" aria-pressed="${cur === t}">${t}<small>Min</small></button>`).join('')}</div>`;
+}
+function render() {
+  if (!S) return;
+  const C = S.cfg, t = S.tickets && S.tickets[n], ab = C.service === 'abholen';
+  document.title = C.name + ' · Caffe Karte';
+  if (!C.takte.includes(ui.takt)) ui.takt = C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)];
+  if (!(ui.item >= 0 && ui.item < C.drinks.length)) ui.item = 0;
+  store.set(`ck-live-ui-${topic}-${n}`, ui);
+  const B = busy() ? ' busy' : '';
+  let html;
+  if (!t) {
+    const can = C.place !== 'tisch' || ui.table;
+    html = `<div class="scr">
+      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Karte ' + n}</span>`)}
+      <section style="display:flex;flex-direction:column;gap:10px"><span class="demo-tag">Vorführung</span>
+        <div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
+        <h1 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h1>
+        <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
+      ${C.place === 'tisch'
+        ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(x => `<button type="button" class="chip" data-act="table" data-v="${x}" aria-pressed="${ui.table === x}">${x}</button>`).join('')}</div></div>`
+        : `<div class="banner">Leg die Karte mit der <b>Nr. ${n}</b> sichtbar auf deinen Tisch. ${ab ? 'Darüber erkennt dich die Theke.' : 'So findet dich die Bedienung.'}</div>`}
+      <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(ui.takt)}</div>
+      <div><div class="lbl">Erstes Getränk, ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</div>${menuList(ui.item, 'first')}</div>
+      <ol class="how"><li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(C.drinks[ui.item][0])}${ab ? ' zubereitet' : ''}.</li><li><b>Danach</b> alle ${ui.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
+    </div>
+    <div class="dock"><button type="button" class="btn primary${B}" data-act="start" ${can ? '' : 'disabled'}>${busy() ? 'Wird gesendet …' : can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
+  } else if (t.screen === 'live') {
+    const nx = C.drinks[t.next] || C.drinks[0], open = t.orders.filter(o => o.status !== 'erledigt');
+    const ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
+    let st = '';
+    if (ready.length) st += `<div class="state ready">${ICON.check}<span><b>Fertig!</b> Hol dein ${esc(ready.map(o => o.name).join(', '))} an der Theke ab.</span></div>`;
+    if (cooking.length) st += `<div class="state">${ICON.tray}<span><b>${ab ? 'Wird zubereitet:' : 'Unterwegs zu dir:'}</b> ${esc(cooking.map(o => o.name).join(', '))}</span></div>`;
+    html = `<div class="scr">
+      <div class="top"><div class="cafe">${esc(C.name)}<small>${esc(t.place)} · seit <span data-since></span></small></div><span class="pill live">Ticker läuft</span></div>
+      <div class="ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle class="trk" cx="100" cy="100" r="88"/><circle class="prg" id="prg" cx="100" cy="100" r="88" stroke-dasharray="${RC}" stroke-dashoffset="${RC}"/></svg>
+        <div class="c"><span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um ${clock(t.nextAt)} Uhr</span></div></div>
+      ${st}
+      <div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes</span><b>${esc(nx[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(nx[1])}</span></div><button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button></div>
+      ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(t.takt)}</div>` : ''}
+      ${bon(t, C, false)}
+      <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
+    </div>
+    <div class="dock"><div class="sum"><span>Bisher</span><b>${eur(total(t))}</b></div><button type="button" class="btn stop${B}" data-act="sheet" data-v="confirm">Ticker stoppen</button></div>`;
+  } else if (t.screen === 'pay') {
+    const P = t.pay, k = P.m === 'kasse', cnt = t.orders.length;
+    const block = P.st === 'choose'
+      ? `<div><div class="lbl">Wie möchtest du zahlen?</div><div class="opts">${C.pay.map(p => `<button type="button" class="opt${B}" data-act="pay" data-v="${p}"><span class="ic">${ICON[PAY[p].icon]}</span><span><b>${PAY[p].title}</b><span>${PAY[p].sub}</span></span><span class="radio"></span></button>`).join('')}</div></div>`
+      : `<div class="amt"><span>${k ? `An der Kasse zahlen, Code #${esc(t.no)}` : P.m === 'bar' ? 'Bitte bar bereithalten' : 'Kartenzahlung am Platz'}</span><b>${eur(total(t))}</b></div>
+        <ol class="steps">${k ? `<li class="done">Deine Übersicht ist an der Kasse</li><li class="now">Geh zur Kasse und nenn Code #${esc(t.no)}</li><li>Bezahlt, Beleg kommt aus der Kasse</li>`
+          : `<li class="done">Die Theke weiß Bescheid</li><li class="now">Bedienung kommt zu ${esc(t.place)}${P.m === 'karte' ? ' mit dem Terminal' : ''}</li><li>Bezahlt, Beleg kommt aus der Kasse</li>`}</ol>
+        ${C.pay.length > 1 ? '<button type="button" class="link" data-act="paychange">Andere Zahlart wählen</button>' : ''}`;
+    html = `<div class="scr">${topBar('<span class="pill">Gestoppt</span>')}
+      <div><h1 class="title sm">Zeit zum Zahlen</h1><p class="lead" style="margin-top:6px">${t.reason ? esc(t.reason) + ' ' : ''}Du warst ${dur(t.stopAt - t.start)} hier und hattest ${cnt} ${cnt === 1 ? 'Getränk' : 'Getränke'}.</p></div>
+      ${bon(t, C, true)}<p class="note">Das ist deine Übersicht. Den Beleg bekommst du wie immer aus der Kasse des Cafés.</p>${block}</div>`;
+  } else {
+    html = `<div class="scr center">${topBar('<span class="pill">Bezahlt</span>')}
+      <div class="ok-mark">${ICON.check}</div><div><h1 class="title">Bezahlt. Danke!</h1><p class="lead" style="margin-top:6px">${eur(total(t))}, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}. Gib die Karte bitte an der Theke ab.</p></div>${bon(t, C, true)}</div>
+      <div class="dock"><button type="button" class="btn ghost${B}" data-act="clear">Neuen Ticker starten</button></div>`;
+  }
+  const sc = window.scrollY; app.innerHTML = html; window.scrollTo(0, sc);
+  renderSheet(t); tick();
+}
+function renderSheet(t) {
+  const el = document.getElementById('sheet');
+  if (!sheetOpen || !t || t.screen !== 'live') { el.innerHTML = ''; return; }
+  const C = S.cfg, ab = C.service === 'abholen'; let body = '';
+  if (sheetOpen === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Gilt ab der nächsten Runde.</p>${menuList(t.next, 'next')}`;
+  if (sheetOpen === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extra')}`;
+  if (sheetOpen === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
+    <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${t.orders.length}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
+    <div class="row2"><button type="button" class="btn ghost" data-act="close" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
+  el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${sheetOpen !== 'confirm' ? '<button type="button" class="btn ghost" data-act="close">Schließen</button>' : ''}</div></div>`;
+}
+function tick() {
+  const t = S && S.tickets && S.tickets[n]; if (!t) return;
+  document.querySelectorAll('[data-since]').forEach(el => el.textContent = dur((t.stopAt || now()) - t.start));
+  if (t.screen === 'live') {
+    const left = t.nextAt - now(), period = t.nextAt - t.lastAuto;
+    document.querySelectorAll('[data-cd]').forEach(el => el.textContent = cd(left));
+    const p = document.getElementById('prg'); if (p) p.style.strokeDashoffset = RC * Math.min(1, Math.max(0, left / period));
+  }
+}
+setInterval(tick, 500);
+
+/* ---------- Klicks ---------- */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  if (b.classList.contains('sheet-wrap') && e.target !== b) return;
+  const a = b.dataset.act, v = b.dataset.v;
+  switch (a) {
+    case 'table': ui.table = +v; break;
+    case 'takt': { const t = S.tickets && S.tickets[n]; if (t && t.screen === 'live') return cmd('takt', { takt: +v }); ui.takt = +v; break; }
+    case 'first': ui.item = +v; break;
+    case 'start': return cmd('start', { takt: ui.takt, item: ui.item, table: ui.table });
+    case 'sheet': sheetOpen = v; return renderSheet(S.tickets[n]);
+    case 'close': sheetOpen = null; return renderSheet(null);
+    case 'next': sheetOpen = null; toast('Gilt ab der nächsten Runde'); return cmd('next', { item: +v });
+    case 'extra': sheetOpen = null; return cmd('extra', { item: +v });
+    case 'stop': sheetOpen = null; return cmd('stop');
+    case 'pay': return cmd('pay', { m: v });
+    case 'paychange': return cmd('paychange');
+    case 'clear': return cmd('clear');
+    default: return;
+  }
+  render();
+});
+</script>
+</body>
+</html>

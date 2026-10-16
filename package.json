@@ -1,0 +1,12 @@
+{
+  "name": "caffe-karte-demo",
+  "private": true,
+  "description": "Vorführung des Laptop-Tickers: eine Seite für ein Gerät, Theke und Karte für zwei Geräte",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "node tests/server.js 8080"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
