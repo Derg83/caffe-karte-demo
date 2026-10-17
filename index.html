@@ -89,6 +89,8 @@ button,input{font:inherit;color:inherit}
 .lbl{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
 .note{font-size:13px;color:var(--muted);margin:0;line-height:1.45}
 .banner{padding:10px 12px;border-radius:12px;background:var(--crema-soft);font-size:14px}
+.banner.warn{border:1px solid var(--crema)}
+.cd.paused{font-size:24px;font-family:var(--f-display)}
 .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .chips.tables{grid-template-columns:repeat(6,1fr)}
 .chip{padding:9px 0 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font:600 16px var(--f-mono);text-align:center}
@@ -359,10 +361,11 @@ function saveCfg() { try { localStorage.setItem('ck-demo', JSON.stringify(C)); }
 
 /* ---------- Ablauf ---------- */
 let skew = 0; const now = () => Date.now() + skew;
-const S = { tab: 'demo', pane: 'gast' };
+// ?tab=rechner öffnet gleich den Rechner (Knopf „Was bringt’s?“ auf der Theke)
+const S = { tab: new URLSearchParams(location.search).get('tab') === 'rechner' ? 'calc' : 'demo', pane: 'gast' };
 function reset() {
   Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0,
-    start: null, nextAt: null, lastAuto: null, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
+    start: null, nextAt: null, lastAuto: null, lastAct: null, remindAt: 0, held: false, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
 }
 reset();
 const drink = i => C.drinks[i] || C.drinks[0];
@@ -381,11 +384,33 @@ function addOrder(i, extra, at) {
   S.orders.push({ n: S.n, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
   S.newIds.add(S.n); beep();
 }
+// „Bist du noch da?“: nach 3 Stunden ohne Aktion des Gasts fragt das Handy nach.
+// Kommt 15 Minuten keine Antwort, gibt es keine weitere Runde, bis der Gast tippt (wie in der echten App).
+const REMIND_AFTER = 180 * MIN, ANSWER_WITHIN = 15 * MIN;
+const isHeld = at => !!S.remindAt && at >= S.remindAt + ANSWER_WITHIN;
+function checkRemind(at) {
+  if (S.remindAt || at - S.lastAct < REMIND_AFTER) return false;
+  S.remindAt = S.lastAct + REMIND_AFTER; beep();
+  toast('Gast-Handy fragt: Bist du noch da?');
+  return true;
+}
+function touch() {
+  if (S.screen !== 'live') return;
+  if (isHeld(now()) && S.nextAt <= now()) { S.lastAuto = now(); S.nextAt = now() + S.takt * MIN; }
+  S.remindAt = 0; S.lastAct = now();
+}
 function tick() {
   if (S.screen === 'live') {
-    let ch = false;
-    while (now() >= S.nextAt) { const at = S.nextAt; S.lastAuto = at; addOrder(S.next, false, at); S.nextAt = at + S.takt * MIN; ch = true; }
-    if (ch) { render(); toast(`Neue Runde: ${drink(S.next)[0]} für ${place()}`); }
+    let ch = false, rounds = 0;
+    while (now() >= S.nextAt) {
+      const at = S.nextAt;
+      if (checkRemind(at)) ch = true;
+      if (isHeld(at)) break;
+      S.lastAuto = at; addOrder(S.next, false, at); S.nextAt = at + S.takt * MIN; ch = true; rounds++;
+    }
+    if (checkRemind(now())) ch = true;
+    if (isHeld(now()) !== S.held) { S.held = !S.held; ch = true; }
+    if (ch) { render(); if (rounds) toast(`Neue Runde: ${drink(S.next)[0]} für ${place()}`); }
   }
   update();
 }
@@ -428,10 +453,15 @@ function gastHTML() {
     let st = '';
     if (ready.length) st += `<div class="state ready">${ICON.check}<span><b>Fertig!</b> Hol dein ${esc(ready.map(o => o.name).join(', '))} an der Theke ab.</span></div>`;
     if (cooking.length) st += `<div class="state">${ICON.tray}<span><b>${ab ? 'Wird zubereitet:' : 'Unterwegs zu dir:'}</b> ${esc(cooking.map(o => o.name).join(', '))}</span></div>`;
+    const held = S.held;
+    const ask = S.remindAt ? `<div class="banner warn" role="alert"><b>Bist du noch da?</b> ${held ? 'Weil keine Antwort kam, ist dein Ticker pausiert. Es kommt nichts mehr, bis du tippst.' : `Dein Ticker läuft seit über 3 Stunden. Ohne Antwort pausiert er um ${clock(S.remindAt + ANSWER_WITHIN)} Uhr.`}
+      <div class="row2" style="margin-top:10px"><button type="button" class="btn sm primary" data-act="stillhere">Ja, weiter</button><button type="button" class="btn sm ghost" data-act="sheet" data-v="confirm">Ticker stoppen</button></div></div>` : '';
     return `<div class="scroll"><div class="scr">
-      <div class="top"><div class="cafe">${esc(C.name)}<small>${place()} · seit <span data-since></span></small></div><span class="pill live">Ticker läuft</span></div>
+      <div class="top"><div class="cafe">${esc(C.name)}<small>${place()} · seit <span data-since></span></small></div>${held ? '<span class="pill">Pausiert</span>' : '<span class="pill live">Ticker läuft</span>'}</div>
+      ${ask}
       <div class="ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle class="trk" cx="100" cy="100" r="88"/><circle class="prg" id="prg" cx="100" cy="100" r="88" stroke-dasharray="${RC}" stroke-dashoffset="${RC}"/></svg>
-        <div class="c"><span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um <span data-nextclock></span> Uhr</span></div></div>
+        <div class="c">${held ? '<span class="cd-l">Nächstes Getränk</span><span class="cd paused">pausiert</span><span class="cd-at">Tippe oben auf „Ja, weiter“</span>'
+          : '<span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um <span data-nextclock></span> Uhr</span>'}</div></div>
       ${st}
       <div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes</span><b>${esc(n[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(n[1])}</span></div><button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button></div>
       ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(S.takt)}</div>` : ''}
@@ -478,7 +508,7 @@ function thekeHTML() {
   const req = S.screen === 'pay' && S.pay.state === 'waiting'
     ? `<section><div class="lbl">Will zahlen</div><div class="tk req">${badge}<div><b>${eur(total())}</b><span class="meta">${S.pay.method === 'kasse' ? 'Kommt zur Kasse, Code #0427' : S.pay.method === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected">Kassiert</button></div></div></section>` : '';
   const ticket = S.screen === 'checkin' ? '<p class="empty">Noch kein Ticker aktiv. Starte einen auf dem Gast-Handy.</p>'
-    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' ? `Nächstes: ${esc(drink(S.next)[0])} in <span class="mono" data-cd></span>` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
+    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' && S.held ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : S.screen === 'live' && S.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : S.screen === 'live' ? `Nächstes: ${esc(drink(S.next)[0])} in <span class="mono" data-cd></span>` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
       <div class="facts"><span>Sitzt seit<b data-since></b></span><span>Takt<b>alle ${S.takt} Min</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Umsatz<b>${eur(total())}</b></span></div></div>`;
   const html = `<div class="scroll"><div class="scr">
     <div class="top"><div class="cafe">Theke<small>${esc(C.name)}</small></div><span class="pill mono" data-clock></span></div>
@@ -539,7 +569,7 @@ function calcHTML() {
 function calcOut() {
   const r = calc(), el = document.getElementById('calcOut'); if (!el) return;
   const max = Math.max(K.today, r.perGuest, 1);
-  el.innerHTML = `<h2>Das bringt der Ticker</h2>
+  el.innerHTML = `<h2>Das bringt der Ticker${C.name && C.name !== DEFAULT.name ? ` dem ${esc(C.name)}` : ''}</h2>
     <div class="big"><span>Zusätzlicher Rohertrag pro Monat, nach Gebühr</span><b>${r.result >= 0 ? '+' : ''}${eur0(r.result)}</b></div>
     <div class="bars">
       <div class="bar"><span>Heute</span><div class="tr"><div class="fi" style="width:${K.today / max * 100}%"></div></div><b>${String(K.today).replace('.', ',')}</b></div>
@@ -636,18 +666,20 @@ function act(a, v, el) {
     case 'ff': {
       // Beim Vorspulen gilt: was älter als 5 Minuten ist, hat die Bedienung längst gebracht
       skew += +v * MIN; tick();
+      // Vorspulen ist keine Aktion des Gasts: Die Nachfrage bleibt, damit man sie zeigen kann
       S.orders.forEach(o => { if (o.status !== 'erledigt' && now() - o.at > 5 * MIN) o.status = 'erledigt'; });
       render(); return;
     }
     case 'reset': reset(); break;
     case 'table': S.table = +v; break;
-    case 'takt': S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
+    case 'takt': touch(); S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
     case 'first': S.first = +v; S.next = +v; break;
-    case 'start': S.start = now(); S.lastAuto = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live'; addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); break;
+    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live'; addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); break;
     case 'sheet': S.sheet = v; gastSheet(); return;
     case 'closesheet': S.sheet = null; gastSheet(); return;
-    case 'pick': S.next = +v; S.sheet = null; toast('Gilt ab der nächsten Runde'); break;
-    case 'extraPick': addOrder(+v, true); S.sheet = null; break;
+    case 'stillhere': touch(); S.held = false; toast('Weiter geht’s. Die Theke sieht: Gast ist noch da.'); break;
+    case 'pick': touch(); S.next = +v; S.sheet = null; toast('Gilt ab der nächsten Runde'); break;
+    case 'extraPick': touch(); addOrder(+v, true); S.sheet = null; break;
     case 'stop': S.sheet = null; S.stopAt = now(); S.screen = 'pay'; S.pay = C.pay.length === 1 ? { method: C.pay[0], state: 'waiting' } : { method: null, state: 'choose' }; break;
     case 'paymethod': S.pay = { method: v, state: 'waiting' }; break;
     case 'paychange': S.pay = { method: null, state: 'choose' }; break;

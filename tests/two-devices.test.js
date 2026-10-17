@@ -51,6 +51,15 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await shot(phone, 'handy-live');
   });
 
+  await t.test('Verbindungstest zeigt Server und gemeldete Karte', async () => {
+    await laptop.click('[data-act=check]');
+    await laptop.getByText(/Verbunden\. Antwort in/).waitFor();
+    await laptop.locator('.chk-row.ok', { hasText: 'Karte 1' }).waitFor();
+    assert.ok(await laptop.locator('.chk-row', { hasText: 'Karte 2' }).getByText('Noch keine Meldung').isVisible());
+    await laptop.click('.sheet button[data-act=close]');
+    assert.strictEqual(await laptop.locator('.chk').count(), 0);
+  });
+
   await t.test('Laptop bringt, spult vor, Handy bekommt die Runden', async () => {
     await laptop.click('[data-act=served]');
     await phone.getByText('serviert').waitFor();
@@ -81,6 +90,24 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await phone.getByText('Bezahlt. Danke!').waitFor();
   });
 
+  await t.test('Nach 3 Stunden: „Bist du noch da?“, ohne Antwort Pause, „Ja, weiter“ setzt fort', async () => {
+    // Handy 2 läuft seit Kurzem, letzte Aktion war der Start
+    for (let i = 0; i < 3; i++) await laptop.click('[data-act=ff][data-v="60"]');
+    await phone2.getByText('Bist du noch da?').waitFor();
+    await laptop.getByText('Fragt gerade: „Bist du noch da?“').waitFor();
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await phone2.locator('.pill', { hasText: 'Pausiert' }).waitFor();
+    await laptop.getByText('Pausiert: Gast antwortet nicht').waitFor();
+    const rows = await phone2.locator('.bon-row').count();
+    await laptop.click('[data-act=ff][data-v="60"]');
+    await laptop.waitForTimeout(1500);
+    assert.strictEqual(await phone2.locator('.bon-row').count(), rows, 'während der Pause kam eine Runde');
+    await phone2.click('[data-act=stillhere]');
+    await phone2.locator('.pill.live').waitFor();
+    await laptop.getByText('Pausiert: Gast antwortet nicht').waitFor({ state: 'detached' });
+    assert.strictEqual(await phone2.getByText('Bist du noch da?').count(), 0);
+  });
+
   await t.test('Bestellung kommt an, auch wenn die Verbindung kurz weg war', async () => {
     srv.dropAll();                                  // alle Live-Verbindungen kappen
     await phone2.click('#app [data-act=sheet][data-v=extra]');
@@ -103,8 +130,11 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
       await p.click('[data-act=start]');
       await p.locator('.pill.live').waitFor();
     }
-    for (let i = 0; i < 12; i++) await laptop.click('[data-act=ff][data-v="60"]');
-    // 12 Stunden im 30-Minuten-Takt: Startgetränk plus 24 Runden
+    // 12 Stunden im 30-Minuten-Takt, alle 3 Stunden bestätigen die Gäste „Ja, weiter“: Startgetränk plus 24 Runden
+    for (let cycle = 0; cycle < 4; cycle++) {
+      for (let i = 0; i < 3; i++) await laptop.click('[data-act=ff][data-v="60"]');
+      for (const p of [phone, phone2, phone3]) { await p.locator('[data-act=stillhere]').click(); await p.getByText('Bist du noch da?').waitFor({ state: 'detached' }); }
+    }
     for (const p of [phone, phone2, phone3]) {
       await p.getByText('seit 12 h').first().waitFor();
       await p.waitForFunction(() => {
@@ -144,6 +174,16 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await laptop.click('[data-act=ff][data-v="15"]');
     await laptop.getByText('Verbunden').waitFor();
     assert.strictEqual(await laptop.getByRole('alert').count(), 0);
+  });
+
+  await t.test('„Was bringt’s?“ öffnet den Rechner mit den Preisen des Cafés', async () => {
+    const [calc] = await Promise.all([laptop.context().waitForEvent('page'), laptop.click('header [data-act=calc]')]);
+    await calc.waitForLoadState();
+    assert.match(calc.url(), /index\.html\?d=.+&tab=rechner/);
+    await calc.getByText('Das bringt der Ticker dem Tomo Cafè').waitFor();
+    // Durchschnitt aus 4,60 € und 4,30 €
+    assert.strictEqual(await calc.locator('#o-price').textContent(), '4,50\u00a0€');
+    await calc.close();
   });
 
   await t.test('Ohne Theke sieht der Gast einen Hinweis', async () => {

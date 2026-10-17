@@ -52,6 +52,10 @@ const CKL = (() => {
     return d;
   }
   // Gleiches Format wie die Vorführ-Seite (?d=...), damit fertige Café-Links weiter funktionieren
+  function encode(c) {
+    const j = JSON.stringify({ n: c.name, o: c.ort, d: c.drinks, s: c.service, p: c.place, z: c.pay, t: c.takte });
+    return btoa(unescape(encodeURIComponent(j))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
   function decode(s) {
     const j = JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))));
     return clean({ name: j.n, ort: j.o, drinks: j.d, service: j.s, place: j.p, pay: j.z, takte: j.t });
@@ -68,6 +72,11 @@ const CKL = (() => {
     if (!res.ok) { const e = new Error('Senden fehlgeschlagen (' + res.status + ')'); e.status = res.status; throw e; }
   }
   const LIMIT_TEXT = 'Der kostenlose Vorführ-Server hat sein Tageslimit für diesen Internetanschluss erreicht.';
+
+  /* ---------- „Bist du noch da?“ (gleiche Regel wie die echte App) ---------- */
+  const REMIND_AFTER = 3 * 3600000;   // nach 3 Stunden ohne Aktion des Gasts
+  const ANSWER_WITHIN = 15 * 60000;   // ohne Antwort danach keine weitere Runde
+  const isHeld = (t, at) => !!t.remindAt && at >= t.remindAt + ANSWER_WITHIN;
 
   /* ---------- Kompaktes Format für einen Ticker ---------- */
   const ST = ['offen', 'fertig', 'erledigt'];
@@ -131,5 +140,5 @@ const CKL = (() => {
       g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.35, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) { /* kein Ton */ }
   }
 
-  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, decode, publish, subscribe, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
+  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
 })();

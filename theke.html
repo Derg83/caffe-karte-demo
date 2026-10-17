@@ -33,6 +33,14 @@ body{padding-block:16px 96px}
 .ffbar .row{display:flex;gap:6px;flex-wrap:wrap}
 .cnt{font:600 12px var(--f-mono);color:var(--muted)}
 .steps-ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.nextstep{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--accent-soft);border-radius:var(--r);padding:12px 14px;font-size:14px}
+.chk{display:flex;flex-direction:column;gap:8px}
+.chk-row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.chk-row .dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--f-mono);background:var(--line);color:var(--muted)}
+.chk-row.ok .dot{background:var(--ok);color:var(--accent-ink)}
+.chk-row.bad .dot{background:var(--bad);color:#fff}
+.chk-row b{display:block;font-size:15px}
+.chk-row span{font-size:13px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -45,8 +53,10 @@ body{padding-block:16px 96px}
     </div>
     <div class="tools">
       <span class="conn off" id="conn">Verbinde …</span>
+      <button type="button" class="gear" data-act="check">Test</button>
       <button type="button" class="gear" data-act="cards">Karten</button>
       <button type="button" class="gear" data-act="setup">Einrichten</button>
+      <button type="button" class="gear" data-act="calc">Was bringt’s?</button>
     </div>
   </header>
   <section id="intro" class="start" hidden></section>
@@ -66,7 +76,7 @@ body{padding-block:16px 96px}
 <script src="vendor/qrcode.js"></script>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, decode, publish, subscribe, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, isHeld, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
 const MIN = 60000;
 
 /* ---------- Fester Vorführ-Code: steckt im Link der Karten ---------- */
@@ -137,8 +147,10 @@ const ticketList = () => Object.entries(T.tickets).map(([n, t]) => ({ n: +n, t }
 
 /* ---------- Befehle vom Gast-Handy ---------- */
 function onCmd(m) {
+  if (m.type === 'ping') return onPing(m);
   const n = Math.round(+m.n);
   if (!(n >= 1 && n <= 20)) return;
+  seen[n] = Date.now(); if (checkOpen) checkSheet();
   if (m.type === 'hello') return publishState(n);
   if (m.type !== 'cmd' || typeof m.cid !== 'string') return;
   if (T.acks.some(a => a.c === m.cid)) return publishState(n);   // schon erledigt, nur Stand erneut senden
@@ -151,14 +163,15 @@ function onCmd(m) {
       const tisch = Math.round(+m.table);
       const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Karte ${n}`;
       const at = now();
-      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, start: at, lastAuto: at, nextAt: at + m.takt * MIN, orders: [], k: 0 };
+      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
       addOrder(t, m.item, false, at);
       toast(`${place} startet: ${d[m.item][0]}`);
       break;
     }
-    case 'next': if (t && t.screen === 'live' && okItem(m.item)) t.next = m.item; break;
-    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
-    case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { addOrder(t, m.item, true); toast(`${t.place}: extra ${d[m.item][0]}`); } break;
+    case 'next': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); t.next = m.item; } break;
+    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
+    case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); addOrder(t, m.item, true); toast(`${t.place}: extra ${d[m.item][0]}`); } break;
+    case 'stillhere': if (t && t.screen === 'live') { touch(t); toast(`${t.place}: Gast ist noch da`); } break;
     case 'stop': if (t && t.screen === 'live') { stopTicket(t); beep(); } break;
     case 'pay': if (t && t.screen === 'pay' && T.cfg.pay.includes(m.m)) { t.pay = { m: m.m, st: 'waiting' }; beep(); toast(`${t.place} will zahlen`); } break;
     case 'paychange': if (t && t.screen === 'pay') t.pay = { m: null, st: 'choose' }; break;
@@ -171,16 +184,39 @@ function onCmd(m) {
 }
 
 /* ---------- Takt ---------- */
+// Nachfrage nach 3 Stunden ohne Aktion des Gasts (t.remindAt = Zeitpunkt der Nachfrage)
+function checkRemind(t, at) {
+  if (t.remindAt || at - (t.lastAct || t.start) < REMIND_AFTER) return false;
+  t.remindAt = (t.lastAct || t.start) + REMIND_AFTER; beep();
+  return true;
+}
+// Gast hat etwas getan: Nachfrage weg, nach einer Pause läuft der Takt ab jetzt neu
+function touch(t) {
+  const n0 = now();
+  if (isHeld(t, n0) && t.nextAt <= n0) { t.lastAuto = n0; t.nextAt = n0 + t.takt * MIN; }
+  t.remindAt = 0; t.lastAct = n0;
+}
+const heldShown = new Set();
 function advanceAll() {
-  let ch = false;
-  for (const { t } of ticketList()) {
+  let ch = false, rounds = 0;
+  for (const { n, t } of ticketList()) {
     if (t.screen !== 'live') continue;
-    while (now() >= t.nextAt) { const at = t.nextAt; t.lastAuto = at; addOrder(t, t.next, false, at); t.nextAt = at + t.takt * MIN; ch = true; }
+    while (now() >= t.nextAt) {
+      const at = t.nextAt;
+      if (checkRemind(t, at)) ch = true;
+      if (isHeld(t, at)) break;   // keine Antwort auf die Nachfrage: keine weitere Runde
+      t.lastAuto = at; addOrder(t, t.next, false, at); t.nextAt = at + t.takt * MIN; ch = true; rounds++;
+    }
+    if (checkRemind(t, now())) ch = true;
+    // Pause beginnt: Theke neu zeichnen (das Handy rechnet die Pause selbst aus)
+    const held = isHeld(t, now());
+    if (held !== heldShown.has(n)) { held ? heldShown.add(n) : heldShown.delete(n); ch = true; }
   }
-  return ch;
+  return { ch, rounds };
 }
 setInterval(() => {
-  if (advanceAll()) { save(); render(); publishState(); toast('Neue Runde'); }
+  const r = advanceAll();
+  if (r.ch) { save(); render(); publishState(); if (r.rounds) toast('Neue Runde'); }
   tick();
 }, 500);
 // Kein regelmäßiges Senden: Ein Handy, das kurz offline war, fragt beim Wiederverbinden selbst nach.
@@ -204,6 +240,7 @@ function render() {
     <div class="top" style="margin-bottom:14px"><div class="cafe">Theke<small>${esc(T.cfg.name)}${T.cfg.ort ? ' · ' + esc(T.cfg.ort) : ''}</small></div><span class="pill mono" data-clock></span></div>
     <div class="th-cols"><div>
       ${limitHit ? `<div class="banner" role="alert"><b>Tageslimit erreicht.</b> ${LIMIT_TEXT} Verbinde den Laptop mit dem Handy-Hotspot, dann läuft es sofort weiter. Morgen ist das Limit wieder frei.</div>` : ''}
+      ${list.some(x => x.t.screen === 'done') && !list.some(x => x.t.screen !== 'done') ? `<div class="nextstep"><span><b>Das war der ganze Ablauf.</b> Jetzt zeigen, was das dem Café im Monat bringt.</span><button type="button" class="btn sm primary" data-act="calc">Was bringt’s? →</button></div>` : ''}
       ${pay.length ? `<section><div class="lbl">Will zahlen (${pay.length})</div>${pay.map(({ n, t }) => `<div class="tk req">${badge(t.place)}<div><b>${eur(total(t))}</b><span class="meta">${t.pay.st === 'choose' ? 'Wählt gerade die Zahlart' : t.pay.m === 'kasse' ? `Kommt zur Kasse, Code #${esc(t.no)}` : t.pay.m === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected" data-n="${n}">Kassiert</button></div></div>`).join('')}</section>` : ''}
       <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
         ${open.length ? open.map(({ n, t, o, round }) => `<div class="tk${newIds.has(t.no + ':' + o.k) ? ' new' : ''}">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${round} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
@@ -212,7 +249,7 @@ function render() {
       </section></div>
       <div>
         <section><div class="lbl">Laptop-Ticker (${list.filter(x => x.t.screen === 'live').length} aktiv)</div>
-          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' ? `Nächstes: ${esc((T.cfg.drinks[t.next] || T.cfg.drinks[0])[0])} in <span class="mono" data-cd="${t.nextAt}"></span>` : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
+          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? `Nächstes: ${esc((T.cfg.drinks[t.next] || T.cfg.drinks[0])[0])} in <span class="mono" data-cd="${t.nextAt}"></span>` : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
             <div class="facts"><span>Takt<b>alle ${t.takt} Min</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
             ${t.screen === 'live' ? `<div class="row2"><button type="button" class="btn sm ghost" data-act="stopT" data-n="${n}">Ticker beenden</button></div>` : ''}</div>`).join('') : '<p class="empty">Noch kein Ticker. Lass eine Karte scannen.</p>'}
         </section>
@@ -236,6 +273,7 @@ function cardUrl(n) {
 }
 function qrSvg(text) { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
 function sheet(html, label) {
+  checkOpen = label === 'Verbindungstest';
   document.getElementById('sheet').innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}" style="max-width:760px"><div class="grab"></div>${html}<button type="button" class="btn ghost" data-act="close">Schließen</button></div></div>`;
 }
 function cardsSheet() {
@@ -274,6 +312,48 @@ function readSetup() {
   });
 }
 
+/* ---------- Was bringt's? Rechner mit Getränken und Preisen dieses Cafés ---------- */
+function calcUrl() {
+  const u = new URL('index.html', location.href); u.search = '';
+  u.searchParams.set('d', encode(T.cfg)); u.searchParams.set('tab', 'rechner');
+  return u.toString();
+}
+
+/* ---------- Verbindungstest vor dem Termin ---------- */
+const seen = {};                 // Karte -> Zeitpunkt der letzten Meldung vom Handy
+let checkOpen = false, ping = null;   // ping: { id, sent, ms, err }
+async function runPing() {
+  const id = rid(8); ping = { id, sent: Date.now(), ms: null, err: null }; checkSheet();
+  try { await publish(topic, { type: 'ping', id }); }
+  catch (e) { ping.err = e.status === 429 ? 'limit' : 'net'; if (e.status === 429 && !limitHit) { limitHit = true; render(); } setConn(false); return checkSheet(); }
+  setTimeout(() => { if (ping && ping.id === id && ping.ms === null && !ping.err) { ping.err = 'slow'; checkSheet(); } }, 8000);
+}
+function onPing(m) {
+  if (!ping || m.id !== ping.id || ping.ms !== null) return;
+  ping.ms = Date.now() - ping.sent; ping.err = null; limitHit = false; setConn(true); checkSheet();
+}
+function checkSheet() {
+  if (!checkOpen) return;
+  const row = (state, title, text, btn = '') => `<div class="chk-row ${state}"><span class="dot">${state === 'ok' ? '✓' : state === 'bad' ? '!' : '…'}</span><div><b>${title}</b><span>${text}</span></div>${btn}</div>`;
+  const p = ping, ago = ts => { const s = Math.round((Date.now() - ts) / 1000); return s < 5 ? 'gerade eben' : s < 60 ? `vor ${s} s` : `vor ${Math.round(s / 60)} Min`; };
+  const net = !p ? row('', 'Laptop ↔ Vorführ-Server', 'Wird geprüft …')
+    : p.ms !== null ? row('ok', 'Laptop ↔ Vorführ-Server', `Verbunden. Antwort in ${p.ms < 100 ? 'unter 0,1' : (p.ms / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} s.`)
+    : p.err === 'limit' ? row('bad', 'Tageslimit erreicht', 'Laptop mit dem Handy-Hotspot verbinden, dann geht es sofort weiter.', '<button type="button" class="mini" data-act="recheck">Nochmal</button>')
+    : p.err ? row('bad', 'Keine Verbindung', p.err === 'slow' ? 'Der Server antwortet nicht. WLAN prüfen oder Handy-Hotspot nutzen.' : 'Kein Internet. WLAN prüfen oder Handy-Hotspot nutzen.', '<button type="button" class="mini" data-act="recheck">Nochmal</button>')
+    : row('', 'Laptop ↔ Vorführ-Server', 'Wird geprüft …');
+  const cards = Array.from({ length: T.cards }, (_, i) => i + 1).map(n => seen[n]
+    ? row('ok', `Karte ${n}`, `Handy ist verbunden, gemeldet ${ago(seen[n])}.`)
+    : row('', `Karte ${n}`, 'Noch keine Meldung. Karte mit dem Handy scannen, dann erscheint hier ein Haken.')).join('');
+  const sound = document.getElementById('soundBtn').textContent === 'Ton ist an';
+  sheet(`<h2>Vor dem Termin prüfen</h2>
+    <p class="note">Einmal durchgehen, bevor du beim Inhaber stehst. Der Test kostet eine Nachricht vom Tageslimit.</p>
+    <div class="chk">${net}${cards}
+      ${row(sound ? 'ok' : '', 'Ton an der Theke', sound ? 'An. Neue Bestellungen piepen, der Bildschirm bleibt an.' : 'Noch aus. Unten auf „Ton an“ tippen, sonst piept es nicht.', `<button type="button" class="mini" data-act="${sound ? 'testbeep' : 'sound'}">${sound ? 'Probieren' : 'Ton an'}</button>`)}
+    </div>
+    <p class="note">Tipp: Ist das WLAN im Café schlecht, den Laptop über den Handy-Hotspot verbinden. Das Handy selbst nutzt dann mobile Daten.</p>`, 'Verbindungstest');
+}
+setInterval(() => { if (checkOpen) checkSheet(); }, 5000);   // „vor x s“ aktuell halten
+
 /* ---------- Klicks ---------- */
 let wakeLock = null;
 document.addEventListener('click', async e => {
@@ -283,17 +363,22 @@ document.addEventListener('click', async e => {
   const a = b.dataset.act, n = +b.dataset.n, t = T.tickets[n];
   const confirmTwice = () => { if (b.dataset.confirm === '1') return true; b.dataset.confirm = '1'; const old = b.textContent; b.textContent = 'Sicher? Nochmal tippen'; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = old; } }, 3000); return false; };
   switch (a) {
-    case 'close': document.getElementById('sheet').innerHTML = ''; return;
+    case 'close': document.getElementById('sheet').innerHTML = ''; checkOpen = false; return;
+    case 'check': checkOpen = true; checkSheet(); return runPing();
+    case 'recheck': return runPing();
+    case 'testbeep': beep(); return;
+    case 'calc': window.open(calcUrl(), '_blank', 'noopener'); return;
     case 'cards': return cardsSheet();
     case 'setup': return setupSheet();
     case 'cardsN': T.cards = Math.min(10, Math.max(1, T.cards + +b.dataset.v)); save(); return cardsSheet();
     case 'copy': { const url = cardUrl(+b.dataset.v); try { await navigator.clipboard.writeText(url); toast('Link kopiert'); } catch (_) { toast('Kopieren ging nicht. Link bitte markieren.'); } return; }
     case 'addDrink': document.getElementById('s-drinks').insertAdjacentHTML('beforeend', drinkRow(['', 0])); document.querySelector('#s-drinks .ed-row:last-child input').focus(); return;
     case 'delDrink': b.closest('.ed-row').remove(); return;
-    case 'saveSetup': T.cfg = readSetup(); document.getElementById('sheet').innerHTML = ''; toast('Übernommen. Die Handys zeigen es sofort.'); break;
+    case 'saveSetup': T.cfg = readSetup(); document.getElementById('sheet').innerHTML = ''; checkOpen = false; toast('Übernommen. Die Handys zeigen es sofort.'); break;
     case 'sound': {
       beep(); document.getElementById('soundBtn').textContent = 'Ton ist an'; document.getElementById('soundHint').textContent = 'Neue Bestellungen piepen. Der Bildschirm bleibt an.';
       try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nicht unterstützt */ }
+      if (checkOpen) checkSheet();
       return;
     }
     case 'ff': {

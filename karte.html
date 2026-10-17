@@ -26,7 +26,7 @@ body{padding-left:0;padding-right:0;padding-block:0;background:var(--bg)}
 <div id="sheet"></div>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, cardTopic, unpack, LIMIT_TEXT, ICON, total, count, bon } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, isHeld, ANSWER_WITHIN, cardTopic, unpack, LIMIT_TEXT, ICON, total, count, bon } = CKL;
 const RC = 2 * Math.PI * 88;
 const topic = qs.get('k'), n = Math.round(+qs.get('n'));
 const app = document.getElementById('app');
@@ -82,6 +82,7 @@ function notify(prev) {
   if (!prev) return;
   const a = prev.tickets && prev.tickets[n], b = S.tickets && S.tickets[n];
   if (!a || !b || a.no !== b.no) return;
+  if (b.remindAt && !a.remindAt) { toast('Bist du noch da? Bitte kurz bestätigen.'); try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch (_) { /* egal */ } }
   const was = new Set(a.orders.filter(o => o.status === 'fertig').map(o => o.k));
   const ready = b.orders.filter(o => o.status === 'fertig' && !was.has(o.k));
   if (ready.length) { toast(`Fertig: ${ready.map(o => o.name).join(', ')} abholen`); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (_) { /* egal */ } }
@@ -123,14 +124,19 @@ function render() {
     <div class="dock"><button type="button" class="btn primary${B}" data-act="start" ${can ? '' : 'disabled'}>${busy() ? 'Wird gesendet …' : can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
   } else if (t.screen === 'live') {
     const nx = C.drinks[t.next] || C.drinks[0], open = t.orders.filter(o => o.status !== 'erledigt');
+    const held = isHeld(t, now()); shownHeld = held;
+    const ask = t.remindAt ? `<div class="banner warn" role="alert"><b>Bist du noch da?</b> ${held ? 'Weil keine Antwort kam, ist dein Ticker pausiert. Es kommt nichts mehr, bis du tippst.' : `Dein Ticker läuft seit über 3 Stunden. Ohne Antwort pausiert er um ${clock(t.remindAt + ANSWER_WITHIN)} Uhr.`}
+      <div class="row2" style="margin-top:10px"><button type="button" class="btn sm primary${B}" data-act="stillhere">Ja, weiter</button><button type="button" class="btn sm ghost" data-act="sheet" data-v="confirm">Ticker stoppen</button></div></div>` : '';
     const ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
     let st = '';
     if (ready.length) st += `<div class="state ready">${ICON.check}<span><b>Fertig!</b> Hol dein ${esc(ready.map(o => o.name).join(', '))} an der Theke ab.</span></div>`;
     if (cooking.length) st += `<div class="state">${ICON.tray}<span><b>${ab ? 'Wird zubereitet:' : 'Unterwegs zu dir:'}</b> ${esc(cooking.map(o => o.name).join(', '))}</span></div>`;
     html = `<div class="scr">
-      <div class="top"><div class="cafe">${esc(C.name)}<small>${esc(t.place)} · seit <span data-since></span></small></div><span class="pill live">Ticker läuft</span></div>
+      <div class="top"><div class="cafe">${esc(C.name)}<small>${esc(t.place)} · seit <span data-since></span></small></div>${held ? '<span class="pill">Pausiert</span>' : '<span class="pill live">Ticker läuft</span>'}</div>
+      ${ask}
       <div class="ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle class="trk" cx="100" cy="100" r="88"/><circle class="prg" id="prg" cx="100" cy="100" r="88" stroke-dasharray="${RC}" stroke-dashoffset="${RC}"/></svg>
-        <div class="c"><span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um ${clock(t.nextAt)} Uhr</span></div></div>
+        <div class="c">${held ? '<span class="cd-l">Nächstes Getränk</span><span class="cd paused">pausiert</span><span class="cd-at">Tippe oben auf „Ja, weiter“</span>'
+          : `<span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um ${clock(t.nextAt)} Uhr</span>`}</div></div>
       ${st}
       <div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes</span><b>${esc(nx[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(nx[1])}</span></div><button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button></div>
       ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(t.takt)}</div>` : ''}
@@ -168,8 +174,10 @@ function renderSheet(t) {
     <div class="row2"><button type="button" class="btn ghost" data-act="close" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
   el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${sheetOpen !== 'confirm' ? '<button type="button" class="btn ghost" data-act="close">Schließen</button>' : ''}</div></div>`;
 }
+let shownHeld = false;
 function tick() {
   const t = S && S.tickets && S.tickets[n]; if (!t) return;
+  if (t.screen === 'live' && isHeld(t, now()) !== shownHeld) return render();   // Pause beginnt gerade
   document.querySelectorAll('[data-since]').forEach(el => el.textContent = dur((t.stopAt || now()) - t.start));
   if (t.screen === 'live') {
     const left = t.nextAt - now(), period = t.nextAt - t.lastAuto;
@@ -197,6 +205,7 @@ document.addEventListener('click', e => {
     case 'pay': return cmd('pay', { m: v });
     case 'paychange': return cmd('paychange');
     case 'clear': return cmd('clear');
+    case 'stillhere': return cmd('stillhere');
     default: return;
   }
   render();
