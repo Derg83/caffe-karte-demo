@@ -1,4 +1,5 @@
 // Test-Server: liefert die Seiten aus und spielt den Vermittler (wie ntfy.sh) unter /relay nach.
+// Wie bei ntfy.sh: Nachrichten über 4096 Bytes kommen nur als Datei-Anhang an, und nach einem Limit gibt es 429.
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,7 +10,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 function start(port = 0) {
   const topics = new Map();   // topic -> { msgs: [], subs: Set<res> }
   const T = name => { if (!topics.has(name)) topics.set(name, { msgs: [], subs: new Set() }); return topics.get(name); };
-  let seq = 0;
+  let seq = 0, limit = Infinity;
+  const stats = { count: 0, maxBytes: 0, tooBig: 0, perTopic: {} };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,7 +22,12 @@ function start(port = 0) {
       if (req.method === 'POST') {
         let body = ''; req.on('data', d => body += d);
         req.on('end', () => {
-          const msg = { id: String(++seq), time: Math.floor(Date.now() / 1000), event: 'message', topic: m[1], message: body };
+          if (stats.count >= limit) { res.writeHead(429, { 'Content-Type': 'application/json' }); return res.end('{"code":42908,"error":"limit reached: daily message quota reached"}'); }
+          const size = Buffer.byteLength(body);
+          stats.count++; stats.maxBytes = Math.max(stats.maxBytes, size); stats.perTopic[m[1]] = (stats.perTopic[m[1]] || 0) + 1;
+          if (size > 4096) stats.tooBig++;
+          const msg = { id: String(++seq), time: Math.floor(Date.now() / 1000), event: 'message', topic: m[1],
+            ...(size > 4096 ? { message: 'You received a file: attachment.txt', attachment: { name: 'attachment.txt', size } } : { message: body }) };
           topic.msgs.push(msg);
           topic.subs.forEach(s => s.write(`data: ${JSON.stringify(msg)}\n\n`));
           res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(msg));
@@ -43,6 +50,8 @@ function start(port = 0) {
   return new Promise(r => server.listen(port, '127.0.0.1', () => r({
     url: `http://127.0.0.1:${server.address().port}`,
     // Simuliert einen Ausfall des Vermittlers
+    stats,
+    setLimit: n => { limit = stats.count + n; },   // ab jetzt noch n Nachrichten erlauben
     dropAll: () => topics.forEach(t => { t.subs.forEach(s => s.destroy()); t.subs.clear(); }),
     stop: () => { topics.forEach(t => t.subs.forEach(s => s.destroy())); server.close(); }
   })));

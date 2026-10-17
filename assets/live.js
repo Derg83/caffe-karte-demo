@@ -6,7 +6,8 @@ const CKL = (() => {
   const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   // Ein anderer Vermittler ist nur für lokale Tests erlaubt
   const RELAY = (isLocal && qs.get('relay')) || 'https://ntfy.sh';
-  const TOPIC_RE = /^[A-Za-z0-9_-]{8,64}$/;
+  // Höchstens 40 Zeichen, weil jede Karte einen eigenen Kanal „<code>-<nr>“ bekommt (ntfy erlaubt 64)
+  const TOPIC_RE = /^[A-Za-z0-9_-]{8,40}$/;
 
   /* ---------- Helfer ---------- */
   const eur = c => (c / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
@@ -57,9 +58,35 @@ const CKL = (() => {
   }
 
   /* ---------- Vermittler ---------- */
+  // ntfy.sh kostenlos: höchstens 4 KB pro Nachricht (größere kommen als Datei an) und 250 Nachrichten pro Tag und Internetanschluss.
+  // Deshalb bekommt jede Karte ihren eigenen kleinen Kanal, und gesendet wird nur, wenn sich etwas ändert.
+  const MAX_BYTES = 3800;
+  const bytes = obj => new TextEncoder().encode(JSON.stringify(obj)).length;
+  const cardTopic = (topic, n) => `${topic}-${n}`;
   async function publish(topic, obj) {
     const res = await fetch(`${RELAY}/${topic}`, { method: 'POST', body: JSON.stringify(obj) });
-    if (!res.ok) throw new Error('Senden fehlgeschlagen (' + res.status + ')');
+    if (!res.ok) { const e = new Error('Senden fehlgeschlagen (' + res.status + ')'); e.status = res.status; throw e; }
+  }
+  const LIMIT_TEXT = 'Der kostenlose Vorführ-Server hat sein Tageslimit für diesen Internetanschluss erreicht.';
+
+  /* ---------- Kompaktes Format für einen Ticker ---------- */
+  const ST = ['offen', 'fertig', 'erledigt'];
+  // Runde als [Nr, Name, Preis, Sekunden seit Start, Status, extra]
+  function pack(t) {
+    const { orders, older, ...rest } = t;
+    return { ...rest, older: older || null, o: orders.map(o => [o.k, o.name, o.price, Math.round((o.at - t.start) / 1000), ST.indexOf(o.status), o.extra ? 1 : 0]) };
+  }
+  function unpack(p) {
+    const { o, ...rest } = p;
+    return { ...rest, orders: (o || []).map(([k, name, price, s, st, ex]) => ({ k, name, price, at: p.start + s * 1000, status: ST[st] || 'offen', extra: !!ex })) };
+  }
+  // Passt die Nachricht nicht in 4 KB, werden die ältesten Runden zu einer Zeile zusammengefasst
+  function fit(msg) {
+    const t = msg.t; if (!t) return msg;
+    while (bytes(msg) > MAX_BYTES && t.o.length > 1) {
+      const r = t.o.shift(); t.older = { c: (t.older ? t.older.c : 0) + 1, s: (t.older ? t.older.s : 0) + r[2] };
+    }
+    return msg;
   }
   // Abonniert das Thema; EventSource verbindet sich bei Abbrüchen selbst neu
   function subscribe(topic, { since, onMsg, onStatus }) {
@@ -86,11 +113,13 @@ const CKL = (() => {
     kasse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16M6 20V11h12v9M8 11V6h8v5M10 15h4"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
   };
-  const total = t => t.orders.reduce((a, o) => a + o.price, 0);
+  const total = t => t.orders.reduce((a, o) => a + o.price, t.older ? t.older.s : 0);
+  const count = t => t.orders.length + (t.older ? t.older.c : 0);
   function bon(t, cfg, final) {
     const ab = cfg.service === 'abholen';
     const lbl = { offen: ab ? 'in Arbeit' : 'unterwegs', fertig: 'abholbereit', erledigt: ab ? 'abgeholt' : 'serviert' }, cls = { offen: 'st-open', fertig: 'st-ready', erledigt: 'st-done' };
     return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${esc(t.place)}</span><span class="mono">#${esc(t.no)}</span></div>
+      ${t.older ? `<div class="bon-row"><time></time><span>${t.older.c} frühere ${t.older.c === 1 ? 'Runde' : 'Runden'}</span>${final ? '' : '<span class="st st-done">erledigt</span>'}<span class="p">${eur(t.older.s)}</span></div>` : ''}
       ${t.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
       <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total(t))}</span></div></div>`;
   }
@@ -102,5 +131,5 @@ const CKL = (() => {
       g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.35, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) { /* kein Ton */ }
   }
 
-  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, decode, publish, subscribe, ICON, total, bon, unlockAudio, beep };
+  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, decode, publish, subscribe, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
 })();

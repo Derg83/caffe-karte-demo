@@ -26,7 +26,7 @@ body{padding-left:0;padding-right:0;padding-block:0;background:var(--bg)}
 <div id="sheet"></div>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, ICON, total, bon } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, cardTopic, unpack, LIMIT_TEXT, ICON, total, count, bon } = CKL;
 const RC = 2 * Math.PI * 88;
 const topic = qs.get('k'), n = Math.round(+qs.get('n'));
 const app = document.getElementById('app');
@@ -41,22 +41,27 @@ if (!TOPIC_RE.test(topic || '') || !(n >= 1 && n <= 20)) {
 } else start();
 
 function start() {
-  subscribe(topic, {
+  // Eigener Kanal dieser Karte: Hier kommt nur ihr Stand an. Befehle gehen an den Kanal der Theke.
+  subscribe(cardTopic(topic, n), {
     since: '2h',
     onMsg: m => {
-      if (m.type !== 'state' || !(m.pubAt > (S ? S.pubAt : 0))) return;
-      const prev = S; S = m; offset = m.now - Date.now();
+      if (m.type !== 'state' || !(m.pubAt > (S ? S.pubAt : 0)) || !m.cfg) return;
+      const prev = S;
+      S = { pubAt: m.pubAt, cfg: m.cfg, acks: m.acks || [], tickets: m.t ? { [n]: unpack(m.t) } : {} };
+      offset = m.now - Date.now();
       clearTimeout(waitTimer);
       for (const [cid, p] of pending) if (m.acks && m.acks.includes(cid)) { clearTimeout(p.timer); pending.delete(cid); }
       notify(prev); render();
     },
-    onStatus: on => { if (on) send({ type: 'hello' }); }
+    onStatus: on => { if (on) send({ type: 'hello', n }); }
   });
   waitTimer = setTimeout(() => { if (!S) app.innerHTML = `<div class="wait"><div class="spin"></div><p class="lead">Die Theke antwortet noch nicht.</p><p class="note">Ist die Theke-Seite auf dem Laptop geöffnet und online?</p></div>`; }, 6000);
 }
 
 /* ---------- Senden mit Wiederholung, bis die Theke bestätigt ---------- */
-function send(msg) { return publish(topic, msg).catch(() => toast('Keine Internetverbindung. Bitte nochmal versuchen.')); }
+function send(msg) {
+  return publish(topic, msg).catch(e => toast(e.status === 429 ? LIMIT_TEXT + ' Tipp: WLAN aus, mobile Daten an.' : 'Keine Internetverbindung. Bitte nochmal versuchen.'));
+}
 function cmd(op, extra = {}) {
   const cid = rid(8), msg = { type: 'cmd', cid, n, op, ...extra };
   const p = { msg, tries: 0 };
@@ -80,7 +85,7 @@ function notify(prev) {
   const was = new Set(a.orders.filter(o => o.status === 'fertig').map(o => o.k));
   const ready = b.orders.filter(o => o.status === 'fertig' && !was.has(o.k));
   if (ready.length) { toast(`Fertig: ${ready.map(o => o.name).join(', ')} abholen`); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (_) { /* egal */ } }
-  else if (b.orders.length > a.orders.length) toast(`Neue Runde: ${b.orders[b.orders.length - 1].name}`);
+  else if (count(b) > count(a) && b.orders.length) toast(`Neue Runde: ${b.orders[b.orders.length - 1].name}`);
 }
 
 /* ---------- Anzeige ---------- */
@@ -134,7 +139,7 @@ function render() {
     </div>
     <div class="dock"><div class="sum"><span>Bisher</span><b>${eur(total(t))}</b></div><button type="button" class="btn stop${B}" data-act="sheet" data-v="confirm">Ticker stoppen</button></div>`;
   } else if (t.screen === 'pay') {
-    const P = t.pay, k = P.m === 'kasse', cnt = t.orders.length;
+    const P = t.pay, k = P.m === 'kasse', cnt = count(t);
     const block = P.st === 'choose'
       ? `<div><div class="lbl">Wie möchtest du zahlen?</div><div class="opts">${C.pay.map(p => `<button type="button" class="opt${B}" data-act="pay" data-v="${p}"><span class="ic">${ICON[PAY[p].icon]}</span><span><b>${PAY[p].title}</b><span>${PAY[p].sub}</span></span><span class="radio"></span></button>`).join('')}</div></div>`
       : `<div class="amt"><span>${k ? `An der Kasse zahlen, Code #${esc(t.no)}` : P.m === 'bar' ? 'Bitte bar bereithalten' : 'Kartenzahlung am Platz'}</span><b>${eur(total(t))}</b></div>
@@ -159,7 +164,7 @@ function renderSheet(t) {
   if (sheetOpen === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Gilt ab der nächsten Runde.</p>${menuList(t.next, 'next')}`;
   if (sheetOpen === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extra')}`;
   if (sheetOpen === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
-    <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${t.orders.length}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
+    <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${count(t)}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
     <div class="row2"><button type="button" class="btn ghost" data-act="close" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
   el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${sheetOpen !== 'confirm' ? '<button type="button" class="btn ghost" data-act="close">Schließen</button>' : ''}</div></div>`;
 }

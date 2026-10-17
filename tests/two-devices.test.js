@@ -16,8 +16,8 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   const open = async (opts, name, url) => {
     const p = await (await browser.newContext(opts)).newPage();
     p.on('pageerror', e => errors.push(`${name}: ${e.message}`));
-    // Der absichtlich gekappte Live-Kanal meldet sich als abgebrochene Übertragung, das ist hier gewollt
-    p.on('console', m => { if (m.type() === 'error' && !/ERR_INCOMPLETE_CHUNKED_ENCODING/.test(m.text())) errors.push(`${name}: ${m.text()}`); });
+    // Gewollt: der absichtlich gekappte Live-Kanal und das ausgelöste Tageslimit (429)
+    p.on('console', m => { if (m.type() === 'error' && !/ERR_INCOMPLETE_CHUNKED_ENCODING|status of 429/.test(m.text())) errors.push(`${name}: ${m.text()}`); });
     await p.goto(url);
     return p;
   };
@@ -95,6 +95,57 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await phone.locator('[data-act=start]').waitFor();
   });
 
+  await t.test('Lange Vorführung mit drei Karten bleibt unter 4 KB pro Nachricht', async () => {
+    const phone3 = await open(PHONE, 'Handy 3', card1.replace('n=1', 'n=3'));
+    for (const p of [phone, phone2, phone3]) {
+      await p.locator('[data-act=start]').waitFor();
+      await p.click('[data-act=takt][data-v="30"]');
+      await p.click('[data-act=start]');
+      await p.locator('.pill.live').waitFor();
+    }
+    for (let i = 0; i < 12; i++) await laptop.click('[data-act=ff][data-v="60"]');
+    // 12 Stunden im 30-Minuten-Takt: Startgetränk plus 24 Runden
+    for (const p of [phone, phone2, phone3]) {
+      await p.getByText('seit 12 h').first().waitFor();
+      await p.waitForFunction(() => {
+        const rows = [...document.querySelectorAll('.bon-row')], older = rows[0] && rows[0].textContent.match(/(\d+) frühere/);
+        return rows.length - (older ? 1 : 0) + (older ? +older[1] : 0) === 25;
+      });
+    }
+    assert.strictEqual(srv.stats.tooBig, 0, 'Nachricht über 4 KB');
+    assert.ok(srv.stats.maxBytes <= 3900, 'größte Nachricht ' + srv.stats.maxBytes);
+  });
+
+  await t.test('Sehr lange Ticker werden gekürzt, Summe bleibt gleich', async () => {
+    const r = await laptop.evaluate(() => {
+      const t = { no: '1', place: 'Karte 1', screen: 'live', takt: 30, next: 0, start: 0, orders: [] };
+      for (let k = 1; k <= 300; k++) t.orders.push({ k, name: 'Frischer Minztee', price: 380, at: k * 1800000, status: 'erledigt', extra: false });
+      const msg = CKL.fit({ type: 'state', cfg: {}, t: CKL.pack(t) });
+      const back = CKL.unpack(msg.t);
+      return { bytes: CKL.bytes(msg), total: CKL.total(back), count: CKL.count(back) };
+    });
+    assert.ok(r.bytes <= 3800, 'Bytes ' + r.bytes);
+    assert.strictEqual(r.total, 300 * 380);
+    assert.strictEqual(r.count, 300);
+  });
+
+  await t.test('Im Leerlauf wird nichts gesendet', async () => {
+    const before = srv.stats.count;
+    await laptop.waitForTimeout(4000);
+    assert.strictEqual(srv.stats.count, before);
+  });
+
+  await t.test('Tageslimit des Vermittlers wird klar angezeigt', async () => {
+    srv.setLimit(0);
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await laptop.getByText('Tageslimit erreicht', { exact: true }).waitFor();
+    await laptop.getByRole('alert').getByText('Handy-Hotspot').waitFor();
+    srv.setLimit(Infinity);
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await laptop.getByText('Verbunden').waitFor();
+    assert.strictEqual(await laptop.getByRole('alert').count(), 0);
+  });
+
   await t.test('Ohne Theke sieht der Gast einen Hinweis', async () => {
     const lonely = await open(PHONE, 'Handy ohne Theke', `${srv.url}/karte.html?k=keine-theke-hier&n=1&relay=${relay}`);
     await lonely.getByText('Die Theke antwortet noch nicht.').waitFor({ timeout: 10000 });
@@ -103,5 +154,6 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   });
 
   await laptop.screenshot({ path: __dirname + '/screens/laptop.png', fullPage: true });
+  console.log('Nachrichten insgesamt:', srv.stats.count, '· größte:', srv.stats.maxBytes, 'Bytes');
   assert.deepStrictEqual(errors, [], 'Fehler in der Browser-Konsole');
 });

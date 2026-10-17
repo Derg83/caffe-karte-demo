@@ -66,7 +66,7 @@ body{padding-block:16px 96px}
 <script src="vendor/qrcode.js"></script>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, decode, publish, subscribe, total, unlockAudio, beep } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, decode, publish, subscribe, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
 const MIN = 60000;
 
 /* ---------- Fester Vorführ-Code: steckt im Link der Karten ---------- */
@@ -80,23 +80,51 @@ const KEY = 'ck-live-state-' + topic;
 /* ---------- Zustand (diese Seite ist die Stelle, die den Takt rechnet) ---------- */
 let T = store.get(KEY) || { cfg: clean({}), tickets: {}, skew: 0, acks: [], cards: 2, no: 100 };
 T.cfg = clean(T.cfg);
+T.acks = (T.acks || []).filter(a => a && typeof a === 'object');   // ältere Speicherstände hatten nur Texte
 if (qs.get('d')) { try { T.cfg = decode(qs.get('d')); } catch (_) { toast('Der Café-Link ist ungültig, Standard bleibt'); } }
 const now = () => Date.now() + T.skew;
 const save = () => store.set(KEY, T);
 const newIds = new Set();
 
-let pubTimer = null, connected = false;
-function publishState() {
-  clearTimeout(pubTimer);
-  pubTimer = setTimeout(async () => {
-    const msg = { type: 'state', pubAt: Date.now(), now: now(), cfg: T.cfg, tickets: T.tickets, acks: T.acks.slice(-40) };
-    let body = JSON.stringify(msg);
-    // Nachrichten über ~4 KB nimmt der Vermittler nicht als Text an: erledigte Ticker weglassen
-    if (body.length > 3800) { const t = {}; for (const [n, x] of Object.entries(T.tickets)) if (x.screen !== 'done') t[n] = x; msg.tickets = t; }
-    try { await publish(topic, msg); setConn(true); } catch (_) { setConn(false); }
-  }, 200);
+/* ---------- Senden: jede Karte hat ihren eigenen Kanal, gesendet wird nur bei Änderungen ---------- */
+const lastSent = {};            // Karte -> zuletzt gesendeter Stand
+const forced = new Set();       // Karten, die ihren Stand neu angefragt haben
+let pubTimer = null, flushing = false, again = false, limitHit = false;
+function cardState(n) {
+  const t = T.tickets[n];
+  return { cfg: T.cfg, skew: T.skew, t: t ? pack(t) : null, acks: T.acks.filter(a => a.n === n).map(a => a.c) };
 }
-function setConn(on) { connected = on; const el = document.getElementById('conn'); el.className = 'conn' + (on ? '' : ' off'); el.textContent = on ? 'Verbunden' : 'Keine Verbindung'; }
+function publishState(n) {
+  if (n) forced.add(n);
+  clearTimeout(pubTimer); pubTimer = setTimeout(flush, 200);
+}
+async function flush() {
+  if (flushing) { again = true; return; }
+  flushing = true;
+  const cards = new Set([...Object.keys(T.tickets), ...Object.keys(lastSent)].map(Number));
+  forced.forEach(n => cards.add(n));
+  for (const n of [...cards].sort((a, b) => a - b)) {
+    const st = cardState(n), key = JSON.stringify(st), force = forced.delete(n);
+    if (!force && lastSent[n] === key) continue;
+    try {
+      await publish(cardTopic(topic, n), fit({ type: 'state', pubAt: Date.now(), now: now(), ...st }));
+      lastSent[n] = key; if (limitHit) { limitHit = false; render(); } setConn(true);
+    } catch (e) {
+      if (force) forced.add(n);
+      if (e.status === 429 && !limitHit) { limitHit = true; toast(LIMIT_TEXT); render(); }
+      setConn(false);
+      break;
+    }
+  }
+  flushing = false;
+  if (again) { again = false; flush(); }
+}
+function setConn(on) {
+  const el = document.getElementById('conn');
+  el.className = 'conn' + (on ? '' : ' off');
+  el.textContent = on ? 'Verbunden' : limitHit ? 'Tageslimit erreicht' : 'Keine Verbindung';
+  el.title = limitHit ? LIMIT_TEXT + ' Tipp: Laptop über den Handy-Hotspot verbinden.' : '';
+}
 
 function addOrder(t, i, extra, at) {
   const d = T.cfg.drinks[i] || T.cfg.drinks[0];
@@ -109,11 +137,11 @@ const ticketList = () => Object.entries(T.tickets).map(([n, t]) => ({ n: +n, t }
 
 /* ---------- Befehle vom Gast-Handy ---------- */
 function onCmd(m) {
-  if (m.type === 'hello') return publishState();
-  if (m.type !== 'cmd' || typeof m.cid !== 'string') return;
-  if (T.acks.includes(m.cid)) return publishState();       // schon erledigt, nur Stand erneut senden
   const n = Math.round(+m.n);
   if (!(n >= 1 && n <= 20)) return;
+  if (m.type === 'hello') return publishState(n);
+  if (m.type !== 'cmd' || typeof m.cid !== 'string') return;
+  if (T.acks.some(a => a.c === m.cid)) return publishState(n);   // schon erledigt, nur Stand erneut senden
   const d = T.cfg.drinks, okItem = i => Number.isInteger(i) && i >= 0 && i < d.length;
   let t = T.tickets[n], changed = true;
   switch (m.op) {
@@ -137,23 +165,25 @@ function onCmd(m) {
     case 'clear': if (t && t.screen === 'done') delete T.tickets[n]; break;
     default: changed = false;
   }
-  T.acks.push(m.cid); T.acks = T.acks.slice(-40);
+  T.acks.push({ n, c: m.cid }); T.acks = T.acks.slice(-60);
   if (changed) { save(); render(); }
-  publishState();
+  publishState(n);
 }
 
 /* ---------- Takt ---------- */
-setInterval(() => {
+function advanceAll() {
   let ch = false;
   for (const { t } of ticketList()) {
     if (t.screen !== 'live') continue;
     while (now() >= t.nextAt) { const at = t.nextAt; t.lastAuto = at; addOrder(t, t.next, false, at); t.nextAt = at + t.takt * MIN; ch = true; }
   }
-  if (ch) { save(); render(); publishState(); toast('Neue Runde'); }
+  return ch;
+}
+setInterval(() => {
+  if (advanceAll()) { save(); render(); publishState(); toast('Neue Runde'); }
   tick();
 }, 500);
-// Stand regelmäßig erneut senden, falls ein Handy kurz offline war
-setInterval(publishState, 30000);
+// Kein regelmäßiges Senden: Ein Handy, das kurz offline war, fragt beim Wiederverbinden selbst nach.
 
 /* ---------- Anzeige ---------- */
 function render() {
@@ -173,6 +203,7 @@ function render() {
   document.getElementById('board').innerHTML = `
     <div class="top" style="margin-bottom:14px"><div class="cafe">Theke<small>${esc(T.cfg.name)}${T.cfg.ort ? ' · ' + esc(T.cfg.ort) : ''}</small></div><span class="pill mono" data-clock></span></div>
     <div class="th-cols"><div>
+      ${limitHit ? `<div class="banner" role="alert"><b>Tageslimit erreicht.</b> ${LIMIT_TEXT} Verbinde den Laptop mit dem Handy-Hotspot, dann läuft es sofort weiter. Morgen ist das Limit wieder frei.</div>` : ''}
       ${pay.length ? `<section><div class="lbl">Will zahlen (${pay.length})</div>${pay.map(({ n, t }) => `<div class="tk req">${badge(t.place)}<div><b>${eur(total(t))}</b><span class="meta">${t.pay.st === 'choose' ? 'Wählt gerade die Zahlart' : t.pay.m === 'kasse' ? `Kommt zur Kasse, Code #${esc(t.no)}` : t.pay.m === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected" data-n="${n}">Kassiert</button></div></div>`).join('')}</section>` : ''}
       <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
         ${open.length ? open.map(({ n, t, o, round }) => `<div class="tk${newIds.has(t.no + ':' + o.k) ? ' new' : ''}">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${round} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
@@ -267,6 +298,7 @@ document.addEventListener('click', async e => {
     }
     case 'ff': {
       T.skew += +b.dataset.v * MIN;
+      advanceAll();   // erst die Runden der übersprungenen Zeit anlegen
       // Was älter als 5 Minuten ist, hat die Bedienung in der Zwischenzeit gebracht
       for (const { t: x } of ticketList()) x.orders.forEach(o => { if (o.status !== 'erledigt' && now() - o.at > 5 * MIN) o.status = 'erledigt'; });
       toast(`${b.dataset.v === '60' ? 'Eine Stunde' : '15 Minuten'} vorgespult`);
@@ -294,8 +326,10 @@ document.addEventListener('click', async e => {
 document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible' && wakeLock) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* egal */ } } });
 
 /* ---------- Start ---------- */
-subscribe(topic, { onMsg: onCmd, onStatus: on => { if (on) publishState(); else setConn(false); } });
-save(); render(); publishState();
+subscribe(topic, { onMsg: onCmd, onStatus: on => { if (!on) setConn(false); else if (!limitHit) setConn(true); } });
+save(); render();
+for (let i = 1; i <= T.cards; i++) forced.add(i);   // beim Öffnen einmal allen Karten den Stand schicken
+publishState();
 </script>
 </body>
 </html>
