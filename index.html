@@ -97,6 +97,8 @@ button,input{font:inherit;color:inherit}
 .chip small{display:block;font:500 11px var(--f-body);color:var(--muted)}
 .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .chip[aria-pressed="true"] small{color:var(--accent-ink);opacity:.8}
+.when{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.when .chip{font:600 15px var(--f-body);padding:11px 8px 10px}
 .menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
 .item{display:grid;grid-template-columns:1fr auto 20px;align-items:center;gap:12px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
 .item:first-child{border-top:0}
@@ -364,7 +366,7 @@ let skew = 0; const now = () => Date.now() + skew;
 // ?tab=rechner öffnet gleich den Rechner (Knopf „Was bringt’s?“ auf der Theke)
 const S = { tab: new URLSearchParams(location.search).get('tab') === 'rechner' ? 'calc' : 'demo', pane: 'gast' };
 function reset() {
-  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0,
+  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0, later: false,
     start: null, nextAt: null, lastAuto: null, lastAct: null, remindAt: 0, held: false, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
 }
 reset();
@@ -427,6 +429,7 @@ function bon(final) {
   const ab = C.service === 'abholen';
   const lbl = { offen: ab ? 'in Arbeit' : 'unterwegs', fertig: 'abholbereit', erledigt: ab ? 'abgeholt' : 'serviert' }, cls = { offen: 'st-open', fertig: 'st-ready', erledigt: 'st-done' };
   return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${place()}</span><span class="mono">#0427</span></div>
+    ${!S.orders.length ? '<p class="note" style="padding:8px 0;border-top:1px dashed var(--line)">Noch nichts bestellt.</p>' : ''}
     ${S.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
     <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total())}</span></div></div>`;
 }
@@ -443,8 +446,12 @@ function gastHTML() {
         ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(t => `<button type="button" class="chip" data-act="table" data-v="${t}" aria-pressed="${S.table === t}">${t}</button>`).join('')}</div></div>`
         : `<div class="banner">Leg die Karte mit der <b>Nr. ${S.card}</b> sichtbar auf deinen Tisch. ${ab ? 'Darüber erkennt dich die Theke.' : 'So findet dich die Bedienung.'}</div>`}
       <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(S.takt)}</div>
-      <div><div class="lbl">Erstes Getränk, ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</div>${menuList(S.first, 'first')}</div>
-      <ol class="how"><li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}.</li><li><b>Danach</b> alle ${S.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
+      <div><div class="lbl">Wann kommt das erste Getränk?</div><div class="when" role="group" aria-label="Erstes Getränk">
+        <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${!S.later}">Jetzt gleich<small>${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</small></button>
+        <button type="button" class="chip" data-act="later" data-v="1" aria-pressed="${S.later}">In ${S.takt} Min<small>ich hab noch was</small></button></div></div>
+      <div><div class="lbl">Erstes Getränk</div>${menuList(S.first, 'first')}</div>
+      <ol class="how">${S.later ? `<li><b>In ${S.takt} Min</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}. Bis dahin genießt du, was du schon hast.</li>`
+        : `<li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}.</li>`}<li><b>Danach</b> alle ${S.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
     </div></div>
     <div class="dock"><button type="button" class="btn primary" data-act="start" ${can ? '' : 'disabled'}>${can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
   }
@@ -674,7 +681,10 @@ function act(a, v, el) {
     case 'table': S.table = +v; break;
     case 'takt': touch(); S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
     case 'first': S.first = +v; S.next = +v; break;
-    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live'; addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); break;
+    case 'later': S.later = v === '1'; break;
+    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live';
+      if (S.later) toast(`Ticker läuft, erste Runde in ${S.takt} Min`); else { addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); }
+      break;
     case 'sheet': S.sheet = v; gastSheet(); return;
     case 'closesheet': S.sheet = null; gastSheet(); return;
     case 'stillhere': touch(); S.held = false; toast('Weiter geht’s. Die Theke sieht: Gast ist noch da.'); break;

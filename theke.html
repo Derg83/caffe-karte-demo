@@ -164,8 +164,9 @@ function onCmd(m) {
       const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Karte ${n}`;
       const at = now();
       t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
-      addOrder(t, m.item, false, at);
-      toast(`${place} startet: ${d[m.item][0]}`);
+      // „Ich hab noch was“: keine Bestellung beim Start, erste Runde nach einem Takt
+      if (m.later === true) toast(`${place} startet, erste Runde in ${m.takt} Min`);
+      else { addOrder(t, m.item, false, at); toast(`${place} startet: ${d[m.item][0]}`); }
       break;
     }
     case 'next': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); t.next = m.item; } break;

@@ -129,7 +129,8 @@ const CKL = (() => {
     const lbl = { offen: ab ? 'in Arbeit' : 'unterwegs', fertig: 'abholbereit', erledigt: ab ? 'abgeholt' : 'serviert' }, cls = { offen: 'st-open', fertig: 'st-ready', erledigt: 'st-done' };
     return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${esc(t.place)}</span><span class="mono">#${esc(t.no)}</span></div>
       ${t.older ? `<div class="bon-row"><time></time><span>${t.older.c} frühere ${t.older.c === 1 ? 'Runde' : 'Runden'}</span>${final ? '' : '<span class="st st-done">erledigt</span>'}<span class="p">${eur(t.older.s)}</span></div>` : ''}
-      ${t.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
+      ${!t.orders.length && !t.older ? '<p class="note" style="padding:8px 0;border-top:1px dashed var(--line)">Noch nichts bestellt.</p>' : ''}
+    ${t.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
       <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total(t))}</span></div></div>`;
   }
   let actx = null;

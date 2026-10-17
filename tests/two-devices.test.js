@@ -122,6 +122,22 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await phone.locator('[data-act=start]').waitFor();
   });
 
+  await t.test('„Ich hab noch was“: Start ohne Bestellung, erste Runde nach dem Takt', async () => {
+    const p4 = await open(PHONE, 'Handy 4', card1.replace('n=1', 'n=4'));
+    await p4.locator('[data-act=start]').waitFor();
+    await p4.click('[data-act=takt][data-v="60"]');
+    await p4.click('[data-act=later][data-v="1"]');
+    await p4.getByText('Bis dahin genießt du, was du schon hast.').waitFor();
+    await p4.click('[data-act=start]');
+    await p4.locator('.pill.live').waitFor();
+    assert.strictEqual(await p4.locator('.bon-row').count(), 0);
+    await laptop.getByText('Karte 4 startet, erste Runde in 60 Min').waitFor();
+    await laptop.locator('.tcard', { hasText: 'Karte' }).filter({ hasText: '4' }).first().waitFor();
+    await laptop.click('[data-act=ff][data-v="60"]');
+    await p4.waitForFunction(() => document.querySelectorAll('.bon-row').length === 1);
+    await p4.close();
+  });
+
   await t.test('Lange Vorführung mit drei Karten bleibt unter 4 KB pro Nachricht', async () => {
     const phone3 = await open(PHONE, 'Handy 3', card1.replace('n=1', 'n=3'));
     for (const p of [phone, phone2, phone3]) {
