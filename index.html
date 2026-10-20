@@ -543,7 +543,7 @@ function thekeHTML() {
 }
 
 /* ---------- Umsatz-Rechner ---------- */
-const K = { guests: 8, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50, cost: 80 };   // cost: Einkauf pro Getränk in Cent
+const K = { guests: 0, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50 };
 function avgPrice() { return Math.round(C.drinks.reduce((a, d) => a + d[1], 0) / C.drinks.length / 10) * 10; }
 function calc() {
   const price = K.price || avgPrice();
@@ -551,38 +551,36 @@ function calc() {
   const extraPerGuest = Math.max(0, perGuest - K.today);
   const users = K.guests * K.share / 100;
   const extraMonth = users * extraPerGuest * K.days;
-  const gross = extraMonth * price;                                     // Kassenpreise inkl. MwSt.
-  const net = gross / 1.19;
-  const vat = gross - net;
-  const buy = extraMonth * K.cost;                                      // Einkauf: Bohnen, Milch, Becher
-  const perDrink = price / 1.19 - K.cost;                               // bleibt pro zusätzlichem Getränk
-  const margin = net - buy;
+  const gross = extraMonth * price;                                     // Mehrumsatz an der Kasse (brutto), in Cent
   const fee = 5000;
-  const breakEven = perDrink > 0 ? Math.ceil(fee / perDrink) : Infinity;
-  return { price, perGuest, extraPerGuest, users, extraMonth, gross, net, vat, buy, perDrink, margin, fee, result: margin - fee, breakEven };
+  const breakEven = price > 0 ? Math.ceil(fee / price) : Infinity;      // so viele Getränke decken die Gebühr
+  return { price, perGuest, extraPerGuest, users, extraMonth, gross, fee, result: gross - fee, breakEven };
+}
+// Voreinstellung: so viele Laptop-Gäste, dass mit den Preisen dieses Cafés etwa 1.000 € Mehrumsatz herauskommen
+function presetGuests() {
+  K.guests = 1; const per = calc().gross; K.guests = 0;
+  return Math.min(40, Math.max(1, Math.ceil(100000 / Math.max(per, 1))));
 }
 function rng(id, label, val, min, max, step, fmt, hint) {
   return `<div class="rng"><div class="rng-h"><label for="k-${id}">${label}</label><output id="o-${id}">${fmt(val)}</output></div><input type="range" id="k-${id}" data-k="${id}" min="${min}" max="${max}" step="${step}" value="${val}">${hint ? `<small>${hint}</small>` : ''}</div>`;
 }
 const F = {
   guests: v => `${v} Gäste`, hours: v => `${String(v).replace('.', ',')} Std`, today: v => `${String(v).replace('.', ',')} Getränke`,
-  price: v => eur(v), takt: v => `alle ${v} Min`, days: v => `${v} Tage`, share: v => `${v} %`, cost: v => eur(v)
+  price: v => eur(v), takt: v => `alle ${v} Min`, days: v => `${v} Tage`, share: v => `${v} %`
 };
 function calcHTML() {
   if (!K.price) K.price = avgPrice();
-  // Abschluss-Werkzeug: nur zwei Fragen, die jeder Inhaber sofort beantworten kann. Der Rest sind vorsichtige Annahmen.
+  if (!K.guests) K.guests = presetGuests();
+  // Abschluss-Werkzeug: zwei Fragen oben, darunter alle Regler offen zum Nachjustieren
   return `<div class="calc">
     <div class="panel"><h2>Kurz zu euch</h2>
       ${rng('guests', 'Wie viele Laptop-Gäste habt ihr am Tag?', K.guests, 1, 40, 1, F.guests)}
       ${rng('hours', 'Wie lange sitzen sie ungefähr?', K.hours, 1, 6, .5, F.hours)}
-      <details class="assume"><summary>Unsere Annahmen, vorsichtig geschätzt</summary><div class="assume-in">
-        ${rng('today', 'Das bestellen sie heute pro Besuch', K.today, 1, 4, .5, F.today)}
-        ${rng('price', 'Durchschnittspreis pro Getränk', K.price, 200, 700, 10, F.price, 'Aus eurer Getränkeliste')}
-        ${rng('takt', 'Takt mit Ticker', K.takt, 30, 90, 15, F.takt)}
-        ${rng('share', 'So viele Laptop-Gäste machen mit', K.share, 10, 100, 10, F.share, 'Nicht jeder nutzt den Ticker')}
-        ${rng('days', 'Öffnungstage im Monat', K.days, 10, 31, 1, F.days)}
-        ${rng('cost', 'Warenkosten pro Getränk', K.cost, 20, 200, 10, F.cost, 'Bohnen, Milch und Becher, geschätzt')}
-      </div></details>
+      ${rng('price', 'Durchschnittspreis pro Getränk', K.price, 200, 700, 10, F.price, 'Aus eurer Getränkeliste')}
+      ${rng('takt', 'Takt mit Ticker', K.takt, 30, 90, 15, F.takt)}
+      ${rng('share', 'So viele Laptop-Gäste machen mit', K.share, 10, 100, 10, F.share)}
+      ${rng('days', 'Öffnungstage im Monat', K.days, 10, 31, 1, F.days)}
+      ${rng('today', 'Das bestellen sie heute pro Besuch', K.today, 1, 4, .5, F.today)}
     </div>
     <div class="panel" id="calcOut"></div>
   </div>`;
@@ -590,26 +588,24 @@ function calcHTML() {
 function calcOut() {
   const r = calc(), el = document.getElementById('calcOut'); if (!el) return;
   const max = Math.max(K.today, r.perGuest, 1);
-  // Große Zahl bewusst abgerundet („über 400 €“), damit sie vorsichtig und glaubwürdig wirkt. Beträge sind in Cent.
-  const head = r.result >= 10000 ? `über ${(Math.floor(r.result / 5000) * 50).toLocaleString('de-DE')} €` : `${r.result >= 0 ? '+' : ''}${eur0(r.result)}`;
+  // Große Zahl bewusst abgerundet („über 1.000 €“). Beträge sind in Cent.
+  const step = r.gross >= 100000 ? 10000 : 5000;   // ab 1.000 € auf volle 100 €, darunter auf 50 €
+  const head = r.gross >= 10000 ? `über ${(Math.floor(r.gross / step) * step / 100).toLocaleString('de-DE')} €` : eur0(r.gross);
   el.innerHTML = `<h2>Das bringt der Ticker${C.name && C.name !== DEFAULT.name ? ` dem ${esc(C.name)}` : ''}</h2>
-    <div class="big"><span>Bleibt euch zusätzlich, jeden Monat</span><b>${head}</b></div>
+    <div class="big"><span>Mehrumsatz an eurer Kasse, jeden Monat</span><b>${head}</b></div>
     <div class="bars">
       <div class="bar"><span>Heute</span><div class="tr"><div class="fi" style="width:${K.today / max * 100}%"></div></div><b>${String(K.today).replace('.', ',')}</b></div>
       <div class="bar t"><span>Mit Ticker</span><div class="tr"><div class="fi" style="width:${r.perGuest / max * 100}%"></div></div><b>${r.perGuest}</b></div>
       <p class="note">Getränke pro Laptop-Gast und Besuch.</p>
     </div>
-    ${r.perDrink > 0 ? `<p class="hook">Schon <b>${r.breakEven} Getränke im Monat</b> bezahlen Caffe Karte. Alles darüber bleibt bei euch.</p>` : ''}
+    <p class="hook">Schon <b>${r.breakEven} Getränke im Monat</b> bezahlen Caffe Karte. Alles darüber ist Mehrumsatz für euch.</p>
     <details class="assume"><summary>So rechnen wir</summary><div class="assume-in">
       <div class="lines">
         <div class="ln"><span>Zusätzliche Getränke pro Monat</span><b>${Math.round(r.extraMonth).toLocaleString('de-DE')}</b></div>
-        <div class="ln"><span>Mehrumsatz an der Kasse</span><b>${eur0(r.gross)}</b></div>
-        <div class="ln neg"><span>MwSt. (19 %)</span><b>− ${eur0(r.vat)}</b></div>
-        <div class="ln neg"><span>Warenkosten (${Math.round(r.extraMonth).toLocaleString('de-DE')} × ${eur(K.cost)})</span><b>− ${eur0(r.buy)}</b></div>
-        <div class="ln neg"><span>Caffe Karte</span><b>− 50 €</b></div>
-        <div class="ln tot"><span>Bleibt übrig</span><b>${eur0(r.result)}</b></div>
+        <div class="ln"><span>× Durchschnittspreis</span><b>${eur(r.price)}</b></div>
+        <div class="ln tot"><span>Mehrumsatz an der Kasse</span><b>${eur0(r.gross)}</b></div>
       </div>
-      <p class="note">Schätzung mit vorsichtigen Annahmen, ohne Personal- und Fixkosten.</p>
+      <p class="note">${String(K.guests)} Laptop-Gäste am Tag, davon ${K.share} % mit Ticker, ${String(K.hours).replace('.', ',')} Std Sitzdauer, ${K.days} Öffnungstage. Caffe Karte kostet 50 € im Monat.</p>
     </div></details>
     <div class="next"><b>Nächster Schritt</b><span>Wir starten den Ticker bei euch als Pilot. Einrichtung, Karten und Theke-Seite übernehmen wir, ihr müsst nichts installieren.</span></div>`;
 }
@@ -683,7 +679,7 @@ function act(a, v, el) {
     case 'addDrink': document.getElementById('s-drinks').insertAdjacentHTML('beforeend', drinkRow(['', 0])); document.querySelector('#s-drinks .ed-row:last-child input').focus(); return;
     case 'delDrink': el.closest('.ed-row').remove(); return;
     case 'defaults': C = clean({}); saveCfg(); setupSheet(); return;
-    case 'saveSetup': C = readSetup(); saveCfg(); K.price = 0; const cv = document.getElementById('calcView'); cv.dataset.ready = ''; document.getElementById('sheet').innerHTML = ''; reset(); toast('Übernommen'); break;
+    case 'saveSetup': C = readSetup(); saveCfg(); K.price = 0; K.guests = 0; const cv = document.getElementById('calcView'); cv.dataset.ready = ''; document.getElementById('sheet').innerHTML = ''; reset(); toast('Übernommen'); break;
     case 'copyLink': {
       const c = readSetup(), url = location.origin + location.pathname + '?d=' + encode(c), out = document.getElementById('linkOut');
       const fb = () => { out.hidden = false; out.value = url; out.focus(); out.select(); toast('Link markiert, jetzt kopieren'); };

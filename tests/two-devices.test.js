@@ -200,9 +200,9 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await calc.getByText('Das bringt der Ticker dem Tomo Cafè').waitFor();
     // Durchschnitt aus 4,60 € und 4,30 €
     assert.strictEqual(await calc.locator('#o-price').textContent(), '4,50\u00a0€');
-    // Große Zahl: abgerundet auf 50 € (Tomo-Beispiel ergibt 415 €)
-    assert.strictEqual((await calc.locator('#calcOut .big b').textContent()).replace(/\s/g, ' '), 'über 400 €');
-    await calc.getByText('Schon 17 Getränke im Monat').waitFor();
+    // Voreinstellung landet bei etwa 1.000 € Mehrumsatz, abgerundet
+    assert.strictEqual((await calc.locator('#calcOut .big b').textContent()).replace(/\s/g, ' '), 'über 1.000 €');
+    await calc.getByText('Schon 12 Getränke im Monat').waitFor();
     await calc.close();
   });
 
