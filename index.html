@@ -214,6 +214,10 @@ section{display:flex;flex-direction:column;gap:8px;min-width:0}
 .ln:first-child{border-top:0}
 .ln b{font:600 15px var(--f-mono);white-space:nowrap}
 .ln.neg b{color:var(--bad)}
+.perdrink{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;background:var(--accent-soft);border-radius:var(--r);padding:12px 14px}
+.perdrink span{font-size:14px;font-weight:600}
+.perdrink b{font:600 22px var(--f-mono);color:var(--accent);grid-row:span 2}
+.perdrink small{font-size:12px;color:var(--muted)}
 .ln.tot{border-top:2px solid var(--ink);font-weight:700}
 .ln.tot b{font-size:18px}
 .bars{display:flex;flex-direction:column;gap:10px}
@@ -535,7 +539,7 @@ function thekeHTML() {
 }
 
 /* ---------- Umsatz-Rechner ---------- */
-const K = { guests: 8, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50, cogs: 25 };
+const K = { guests: 8, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50, cost: 80 };   // cost: Einkauf pro Getränk in Cent
 function avgPrice() { return Math.round(C.drinks.reduce((a, d) => a + d[1], 0) / C.drinks.length / 10) * 10; }
 function calc() {
   const price = K.price || avgPrice();
@@ -545,17 +549,20 @@ function calc() {
   const extraMonth = users * extraPerGuest * K.days;
   const gross = extraMonth * price;                                     // Kassenpreise inkl. MwSt.
   const net = gross / 1.19;
-  const margin = net * (1 - K.cogs / 100);
+  const vat = gross - net;
+  const buy = extraMonth * K.cost;                                      // Einkauf: Bohnen, Milch, Becher
+  const perDrink = price / 1.19 - K.cost;                               // bleibt pro zusätzlichem Getränk
+  const margin = net - buy;
   const fee = 5000;
-  const breakEven = Math.ceil(fee / (price / 1.19 * (1 - K.cogs / 100)));
-  return { price, perGuest, extraPerGuest, users, extraMonth, gross, net, margin, fee, result: margin - fee, breakEven };
+  const breakEven = perDrink > 0 ? Math.ceil(fee / perDrink) : Infinity;
+  return { price, perGuest, extraPerGuest, users, extraMonth, gross, net, vat, buy, perDrink, margin, fee, result: margin - fee, breakEven };
 }
 function rng(id, label, val, min, max, step, fmt, hint) {
   return `<div class="rng"><div class="rng-h"><label for="k-${id}">${label}</label><output id="o-${id}">${fmt(val)}</output></div><input type="range" id="k-${id}" data-k="${id}" min="${min}" max="${max}" step="${step}" value="${val}">${hint ? `<small>${hint}</small>` : ''}</div>`;
 }
 const F = {
   guests: v => `${v} Gäste`, hours: v => `${String(v).replace('.', ',')} Std`, today: v => `${String(v).replace('.', ',')} Getränke`,
-  price: v => eur(v), takt: v => `alle ${v} Min`, days: v => `${v} Tage`, share: v => `${v} %`, cogs: v => `${v} %`
+  price: v => eur(v), takt: v => `alle ${v} Min`, days: v => `${v} Tage`, share: v => `${v} %`, cost: v => eur(v)
 };
 function calcHTML() {
   if (!K.price) K.price = avgPrice();
@@ -568,7 +575,7 @@ function calcHTML() {
       ${rng('takt', 'Takt mit Ticker', K.takt, 30, 90, 15, F.takt)}
       ${rng('share', 'So viele Laptop-Gäste machen mit', K.share, 10, 100, 10, F.share, 'Vorsichtig schätzen: nicht jeder nutzt den Ticker')}
       ${rng('days', 'Öffnungstage im Monat', K.days, 10, 31, 1, F.days)}
-      ${rng('cogs', 'Wareneinsatz', K.cogs, 10, 50, 5, F.cogs, 'Anteil Bohnen, Milch, Becher am Nettopreis')}
+      ${rng('cost', 'Was kostet dich ein Getränk im Einkauf?', K.cost, 20, 200, 10, F.cost, 'Bohnen, Milch und Becher für ein Getränk. Grob schätzen reicht.')}
     </div>
     <div class="panel" id="calcOut"></div>
   </div>`;
@@ -577,7 +584,7 @@ function calcOut() {
   const r = calc(), el = document.getElementById('calcOut'); if (!el) return;
   const max = Math.max(K.today, r.perGuest, 1);
   el.innerHTML = `<h2>Das bringt der Ticker${C.name && C.name !== DEFAULT.name ? ` dem ${esc(C.name)}` : ''}</h2>
-    <div class="big"><span>Zusätzlicher Rohertrag pro Monat, nach Gebühr</span><b>${r.result >= 0 ? '+' : ''}${eur0(r.result)}</b></div>
+    <div class="big"><span>Bleibt dir zusätzlich pro Monat, nach allen Abzügen</span><b>${r.result >= 0 ? '+' : ''}${eur0(r.result)}</b></div>
     <div class="bars">
       <div class="bar"><span>Heute</span><div class="tr"><div class="fi" style="width:${K.today / max * 100}%"></div></div><b>${String(K.today).replace('.', ',')}</b></div>
       <div class="bar t"><span>Mit Ticker</span><div class="tr"><div class="fi" style="width:${r.perGuest / max * 100}%"></div></div><b>${r.perGuest}</b></div>
@@ -585,13 +592,14 @@ function calcOut() {
     </div>
     <div class="lines">
       <div class="ln"><span>Zusätzliche Getränke pro Monat</span><b>${Math.round(r.extraMonth).toLocaleString('de-DE')}</b></div>
-      <div class="ln"><span>Mehrumsatz (Kassenpreise inkl. MwSt.)</span><b>${eur0(r.gross)}</b></div>
-      <div class="ln"><span>Davon netto (ohne 19 % MwSt.)</span><b>${eur0(r.net)}</b></div>
-      <div class="ln"><span>Nach ${K.cogs} % Wareneinsatz</span><b>${eur0(r.margin)}</b></div>
+      <div class="ln"><span>Mehrumsatz an der Kasse</span><b>${eur0(r.gross)}</b></div>
+      <div class="ln neg"><span>MwSt. (19 %)</span><b>− ${eur0(r.vat)}</b></div>
+      <div class="ln neg"><span>Einkauf (${Math.round(r.extraMonth).toLocaleString('de-DE')} × ${eur(K.cost)})</span><b>− ${eur0(r.buy)}</b></div>
       <div class="ln neg"><span>Caffe Karte</span><b>− 50 €</b></div>
       <div class="ln tot"><span>Bleibt übrig</span><b>${eur0(r.result)}</b></div>
     </div>
-    <p class="note">Die Gebühr ist nach <b>${r.breakEven} zusätzlichen Getränken im Monat</b> drin${r.breakEven <= K.days ? ', also weniger als einem pro Öffnungstag' : `, also etwa ${Math.ceil(r.breakEven / K.days)} pro Öffnungstag`}. Schätzung mit euren Angaben, ohne Personal- und Fixkosten.</p>`;
+    <div class="perdrink"><span>Pro zusätzlichem Getränk bleiben dir</span><b>${eur(Math.max(0, Math.round(r.perDrink)))}</b><small>${eur(r.price)} Preis − ${eur(Math.round(r.price - r.price / 1.19))} MwSt. − ${eur(K.cost)} Einkauf</small></div>
+    <p class="note">${r.perDrink > 0 ? `Die Gebühr ist nach <b>${r.breakEven} zusätzlichen Getränken im Monat</b> drin${r.breakEven <= K.days ? ', also weniger als einem pro Öffnungstag' : `, also etwa ${Math.ceil(r.breakEven / K.days)} pro Öffnungstag`}.` : 'Bei diesem Einkaufspreis bleibt pro Getränk nichts übrig.'} Schätzung mit euren Angaben, ohne Personal- und Fixkosten.</p>`;
 }
 
 /* ---------- Einrichten ---------- */
