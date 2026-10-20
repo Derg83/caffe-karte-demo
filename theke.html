@@ -161,7 +161,7 @@ function onCmd(m) {
       if (t && (t.screen === 'live' || t.screen === 'pay')) break;
       if (!T.cfg.takte.includes(m.takt) || !okItem(m.item)) break;
       const tisch = Math.round(+m.table);
-      const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Karte ${n}`;
+      const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Tisch ${n}`;   // Karte liegt fest auf Tisch n
       const at = now();
       t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
       // „Ich hab noch was“: keine Bestellung beim Start, erste Runde nach einem Takt
@@ -281,12 +281,12 @@ function cardsSheet() {
   const ns = Array.from({ length: T.cards }, (_, i) => i + 1);
   sheet(`<h2>Deine Karten</h2>
     <p class="note">Diese Links bleiben immer gleich. Schreib sie einmal auf deine NFC-Karten, dann funktionieren sie in jedem Café. Welches Café und welche Getränke angezeigt werden, stellst du hier unter „Einrichten“ ein.</p>
-    <div class="cards">${ns.map(n => `<div class="qcard"><b>Karte ${n}</b><div class="qr">${qrSvg(cardUrl(n))}</div><code>${esc(cardUrl(n))}</code><button type="button" class="mini" data-act="copy" data-v="${n}">Link kopieren</button></div>`).join('')}</div>
+    <div class="cards">${ns.map(n => `<div class="qcard"><b>Tisch ${n}</b><div class="qr">${qrSvg(cardUrl(n))}</div><code>${esc(cardUrl(n))}</code><button type="button" class="mini" data-act="copy" data-v="${n}">Link kopieren</button></div>`).join('')}</div>
     <div class="row2" style="align-items:center"><span class="note">Anzahl Karten</span><button type="button" class="mini" data-act="cardsN" data-v="-1">−</button><b class="mono">${T.cards}</b><button type="button" class="mini" data-act="cardsN" data-v="1">+</button></div>
     <div><div class="lbl">Link auf die NFC-Karte schreiben</div><ol class="steps-ol">
       <li>App „NFC Tools“ aufs Handy laden (iPhone und Android, kostenlos).</li>
-      <li>„Schreiben“ → „Datensatz hinzufügen“ → „URL / URI“ → Link von Karte 1 einfügen.</li>
-      <li>„Schreiben“ tippen und die Karte ans Handy halten. Für Karte 2 genauso.</li>
+      <li>„Schreiben“ → „Datensatz hinzufügen“ → „URL / URI“ → Link von Tisch 1 einfügen.</li>
+      <li>„Schreiben“ tippen und die Karte ans Handy halten. Für Tisch 2 genauso.</li>
       <li>Zum Testen das Handy an die Karte halten: Die Gast-Seite öffnet sich.</li></ol></div>
     <p class="note">Wichtig: Die Theke-Seite immer mit diesem Link öffnen, sonst finden die Karten sie nicht:<br><code style="word-break:break-all">${esc(location.href)}</code></p>`, 'Karten');
 }
@@ -297,7 +297,7 @@ function setupSheet() {
     <div class="grid2"><div class="fld"><label for="s-name">Name</label><input type="text" id="s-name" value="${esc(C.name)}"></div><div class="fld"><label for="s-ort">Ort</label><input type="text" id="s-ort" value="${esc(C.ort)}"></div></div>
     <div class="fld"><span class="l">Getränke und Preise</span><div class="ed" id="s-drinks">${C.drinks.map(drinkRow).join('')}</div><button type="button" class="link" data-act="addDrink">+ Getränk</button></div>
     <div class="fld"><span class="l">Service</span><div class="checks"><label><input type="radio" name="s-service" value="bringen" ${C.service === 'bringen' ? 'checked' : ''}>Bedienung bringt</label><label><input type="radio" name="s-service" value="abholen" ${C.service === 'abholen' ? 'checked' : ''}>Gast holt ab</label></div></div>
-    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Kartennummer ist der Platz</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast wählt Tischnummer</label></div></div>
+    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Karte liegt fest auf dem Tisch</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast bekommt Karte, wählt Tisch</label></div></div>
     <div class="fld"><span class="l">Zahlarten</span><div class="checks">${Object.keys(PAY).map(p => `<label><input type="checkbox" name="s-pay" value="${p}" ${C.pay.includes(p) ? 'checked' : ''}>${PAY[p].title}</label>`).join('')}</div></div>
     <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[30, 45, 60, 90].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
     <button type="button" class="btn primary" data-act="saveSetup">Übernehmen</button>
@@ -343,8 +343,8 @@ function checkSheet() {
     : p.err ? row('bad', 'Keine Verbindung', p.err === 'slow' ? 'Der Server antwortet nicht. WLAN prüfen oder Handy-Hotspot nutzen.' : 'Kein Internet. WLAN prüfen oder Handy-Hotspot nutzen.', '<button type="button" class="mini" data-act="recheck">Nochmal</button>')
     : row('', 'Laptop ↔ Vorführ-Server', 'Wird geprüft …');
   const cards = Array.from({ length: T.cards }, (_, i) => i + 1).map(n => seen[n]
-    ? row('ok', `Karte ${n}`, `Handy ist verbunden, gemeldet ${ago(seen[n])}.`)
-    : row('', `Karte ${n}`, 'Noch keine Meldung. Karte mit dem Handy scannen, dann erscheint hier ein Haken.')).join('');
+    ? row('ok', `Tisch ${n}`, `Handy ist verbunden, gemeldet ${ago(seen[n])}.`)
+    : row('', `Tisch ${n}`, 'Noch keine Meldung. Karte mit dem Handy scannen, dann erscheint hier ein Haken.')).join('');
   const sound = document.getElementById('soundBtn').textContent === 'Ton ist an';
   sheet(`<h2>Vor dem Termin prüfen</h2>
     <p class="note">Einmal durchgehen, bevor du beim Inhaber stehst. Der Test kostet eine Nachricht vom Tageslimit.</p>

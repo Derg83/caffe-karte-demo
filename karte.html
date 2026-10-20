@@ -109,14 +109,14 @@ function render() {
   if (!t) {
     const can = C.place !== 'tisch' || ui.table;
     html = `<div class="scr">
-      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Karte ' + n}</span>`)}
+      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Tisch ' + n}</span>`)}
       <section style="display:flex;flex-direction:column;gap:10px"><span class="demo-tag">Vorführung</span>
         <div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
         <h1 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h1>
         <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
       ${C.place === 'tisch'
         ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(x => `<button type="button" class="chip" data-act="table" data-v="${x}" aria-pressed="${ui.table === x}">${x}</button>`).join('')}</div></div>`
-        : `<div class="banner">Leg die Karte mit der <b>Nr. ${n}</b> sichtbar auf deinen Tisch. ${ab ? 'Darüber erkennt dich die Theke.' : 'So findet dich die Bedienung.'}</div>`}
+        : `<div class="banner">Du sitzt an <b>Tisch ${n}</b>. ${ab ? 'Darüber erkennt dich die Theke.' : 'Dorthin bringt die Bedienung deine Getränke.'}</div>`}
       <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(ui.takt)}</div>
       <div><div class="lbl">Wann kommt das erste Getränk?</div><div class="when" role="group" aria-label="Erstes Getränk">
         <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${!ui.later}">Jetzt gleich<small>${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</small></button>

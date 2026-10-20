@@ -373,7 +373,7 @@ reset();
 const drink = i => C.drinks[i] || C.drinks[0];
 const total = () => S.orders.reduce((a, o) => a + o.price, 0);
 const openOrders = () => S.orders.filter(o => o.status !== 'erledigt');
-const place = () => C.place === 'tisch' ? `Tisch ${S.table || '?'}` : `Karte ${S.card}`;
+const place = () => C.place === 'tisch' ? `Tisch ${S.table || '?'}` : `Tisch ${S.card}`;
 
 let actx = null;
 function beep() {
@@ -438,13 +438,13 @@ function gastHTML() {
   if (S.screen === 'checkin') {
     const can = C.place !== 'tisch' || S.table;
     return `<div class="scroll"><div class="scr">
-      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Karte ' + S.card}</span>`)}
+      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Tisch ' + S.card}</span>`)}
       <section><div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
       <h2 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h2>
       <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
       ${C.place === 'tisch'
         ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(t => `<button type="button" class="chip" data-act="table" data-v="${t}" aria-pressed="${S.table === t}">${t}</button>`).join('')}</div></div>`
-        : `<div class="banner">Leg die Karte mit der <b>Nr. ${S.card}</b> sichtbar auf deinen Tisch. ${ab ? 'Darüber erkennt dich die Theke.' : 'So findet dich die Bedienung.'}</div>`}
+        : `<div class="banner">Du sitzt an <b>Tisch ${S.card}</b>. ${ab ? 'Darüber erkennt dich die Theke.' : 'Dorthin bringt die Bedienung deine Getränke.'}</div>`}
       <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(S.takt)}</div>
       <div><div class="lbl">Wann kommt das erste Getränk?</div><div class="when" role="group" aria-label="Erstes Getränk">
         <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${!S.later}">Jetzt gleich<small>${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</small></button>
@@ -603,7 +603,7 @@ function setupSheet() {
     <div class="grid2"><div class="fld"><label for="s-name">Name</label><input type="text" id="s-name" value="${esc(C.name)}"></div><div class="fld"><label for="s-ort">Ort</label><input type="text" id="s-ort" value="${esc(C.ort)}"></div></div>
     <div class="fld"><span class="l">Getränke und Preise</span><div class="ed" id="s-drinks">${C.drinks.map(drinkRow).join('')}</div><button type="button" class="link" data-act="addDrink">+ Getränk</button></div>
     <div class="fld"><span class="l">Service</span><div class="checks"><label><input type="radio" name="s-service" value="bringen" ${C.service === 'bringen' ? 'checked' : ''}>Bedienung bringt</label><label><input type="radio" name="s-service" value="abholen" ${C.service === 'abholen' ? 'checked' : ''}>Gast holt ab</label></div></div>
-    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Kartennummer ist der Platz</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast wählt Tischnummer</label></div></div>
+    <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Karte liegt fest auf dem Tisch</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast bekommt Karte, wählt Tisch</label></div></div>
     <div class="fld"><span class="l">Zahlarten</span><div class="checks">${Object.keys(PAY).map(p => `<label><input type="checkbox" name="s-pay" value="${p}" ${C.pay.includes(p) ? 'checked' : ''}>${PAY[p].title}</label>`).join('')}</div></div>
     <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[30, 45, 60, 90].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
     <div class="row2"><button type="button" class="btn primary" data-act="saveSetup" style="flex:1">Übernehmen</button>${inFrame ? '' : '<button type="button" class="btn ghost" data-act="copyLink" style="flex:1">Link für dieses Café kopieren</button>'}</div>

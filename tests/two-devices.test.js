@@ -42,6 +42,7 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   const shot = (p, name) => p.screenshot({ path: `${__dirname}/screens/${name}.png`, fullPage: true });
   await t.test('Handy zeigt das Café vom Laptop und startet', async () => {
     await phone.getByText('Tomo Cafè').first().waitFor();
+    await phone.getByText('Du sitzt an Tisch 1.').waitFor();
     await phone.click('[data-act=takt][data-v="30"]');
     await phone.click('[data-act=first][data-v="1"]');
     await phone.click('[data-act=start]');
@@ -54,8 +55,8 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   await t.test('Verbindungstest zeigt Server und gemeldete Karte', async () => {
     await laptop.click('[data-act=check]');
     await laptop.getByText(/Verbunden\. Antwort in/).waitFor();
-    await laptop.locator('.chk-row.ok', { hasText: 'Karte 1' }).waitFor();
-    assert.ok(await laptop.locator('.chk-row', { hasText: 'Karte 2' }).getByText('Noch keine Meldung').isVisible());
+    await laptop.locator('.chk-row.ok', { hasText: 'Tisch 1' }).waitFor();
+    assert.ok(await laptop.locator('.chk-row', { hasText: 'Tisch 2' }).getByText('Noch keine Meldung').isVisible());
     await laptop.click('.sheet button[data-act=close]');
     assert.strictEqual(await laptop.locator('.chk').count(), 0);
   });
@@ -131,8 +132,8 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await p4.click('[data-act=start]');
     await p4.locator('.pill.live').waitFor();
     assert.strictEqual(await p4.locator('.bon-row').count(), 0);
-    await laptop.getByText('Karte 4 startet, erste Runde in 60 Min').waitFor();
-    await laptop.locator('.tcard', { hasText: 'Karte' }).filter({ hasText: '4' }).first().waitFor();
+    await laptop.getByText('Tisch 4 startet, erste Runde in 60 Min').waitFor();
+    await laptop.locator('.tcard', { hasText: 'Tisch' }).filter({ hasText: '4' }).first().waitFor();
     await laptop.click('[data-act=ff][data-v="60"]');
     await p4.waitForFunction(() => document.querySelectorAll('.bon-row').length === 1);
     await p4.close();
