@@ -229,7 +229,7 @@ function renderSheet(t) {
   const el = document.getElementById('sheet');
   const C = S.cfg, ab = C.service === 'abholen'; let body = '';
   if (sheetOpen === 'plan' && draft && !t) {   // Vorausplanen vor dem Start
-    el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${plannerHTML(null, C)}<button type="button" class="btn ghost" data-act="close">Schließen</button></div></div>`;
+    keepScroll(el, () => { el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${plannerHTML(null, C)}<button type="button" class="btn ghost" data-act="close">Schließen</button></div></div>`; });
     return;
   }
   if (!sheetOpen || !t || t.screen !== 'live') { el.innerHTML = ''; return; }
@@ -239,8 +239,10 @@ function renderSheet(t) {
   if (sheetOpen === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
     <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${count(t)}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
     <div class="row2"><button type="button" class="btn ghost" data-act="close" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
-  el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${sheetOpen !== 'confirm' ? '<button type="button" class="btn ghost" data-act="close">Schließen</button>' : ''}</div></div>`;
+  keepScroll(el, () => { el.innerHTML = `<div class="sheet-wrap fixed" data-act="close"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${body}${sheetOpen !== 'confirm' ? '<button type="button" class="btn ghost" data-act="close">Schließen</button>' : ''}</div></div>`; });
 }
+// Beim Neuzeichnen des Fensters an derselben Stelle bleiben (sonst springt es nach oben)
+function keepScroll(el, draw) { const o = el.querySelector('.sheet'), y = o ? o.scrollTop : 0; draw(); const s = el.querySelector('.sheet'); if (o && s) s.scrollTop = y; }
 let shownHeld = false;
 function tick() {
   const t = S && S.tickets && S.tickets[n]; if (!t) return;
