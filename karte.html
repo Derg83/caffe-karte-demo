@@ -32,7 +32,7 @@ const topic = qs.get('k'), n = Math.round(+qs.get('n'));
 const app = document.getElementById('app');
 
 let S = null, offset = 0, sheetOpen = null, waitTimer = null;
-const ui = { table: null, takt: null, item: 0, later: false, ...store.get(`ck-live-ui-${topic}-${n}`) };
+const ui = { table: null, takt: null, item: 0, ...store.get(`ck-live-ui-${topic}-${n}`), later: null };   // die Frage „Schon bestellt?“ kommt jedes Mal neu
 const now = () => Date.now() + offset;
 const pending = new Map();   // cid -> { msg, tries, timer, btn }
 
@@ -48,6 +48,7 @@ function start() {
       if (m.type !== 'state' || !(m.pubAt > (S ? S.pubAt : 0)) || !m.cfg) return;
       const prev = S;
       S = { pubAt: m.pubAt, cfg: m.cfg, acks: m.acks || [], tickets: m.t ? { [n]: unpack(m.t) } : {} };
+      if (prev && prev.tickets[n] && !S.tickets[n]) ui.later = null;   // Ticker beendet: Frage wieder frisch stellen
       offset = m.now - Date.now();
       clearTimeout(waitTimer);
       for (const [cid, p] of pending) if (m.acks && m.acks.includes(cid)) { clearTimeout(p.timer); pending.delete(cid); }
@@ -107,25 +108,26 @@ function render() {
   const B = busy() ? ' busy' : '';
   let html;
   if (!t) {
-    const can = C.place !== 'tisch' || ui.table;
+    // Startseite: erst die eine Frage „Schon bestellt?“, dann nur das, was dazu passt
+    const can = C.place !== 'tisch' || ui.table, L = ui.later, item = esc(C.drinks[ui.item][0]);
+    const tables = C.place === 'tisch' ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(x => `<button type="button" class="chip" data-act="table" data-v="${x}" aria-pressed="${ui.table === x}">${x}</button>`).join('')}</div></div>` : '';
+    const yes = `${tables}
+      <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(ui.takt)}</div>
+      <div><div class="lbl">Was soll dann kommen?</div>${menuList(ui.item, 'first')}</div>
+      <p class="note">In ${ui.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${ui.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
+    const no = `${tables}
+      <div><div class="lbl">Dann bestell direkt hier</div>${menuList(ui.item, 'first')}</div>
+      <div><div class="lbl">Danach automatisch alle</div>${taktBlock(ui.takt)}</div>
+      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${ui.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
+    const label = !can ? 'Erst Tisch wählen' : L ? `Ticker starten · nächstes in ${ui.takt} Min` : `${item} bestellen`;
     html = `<div class="scr">
-      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Tisch ' + n}</span>`)}
-      <section style="display:flex;flex-direction:column;gap:10px"><span class="demo-tag">Vorführung</span>
-        <div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
-        <h1 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h1>
-        <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
-      ${C.place === 'tisch'
-        ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(x => `<button type="button" class="chip" data-act="table" data-v="${x}" aria-pressed="${ui.table === x}">${x}</button>`).join('')}</div></div>`
-        : `<div class="banner">Du sitzt an <b>Tisch ${n}</b>. ${ab ? 'Darüber erkennt dich die Theke.' : 'Dorthin bringt die Bedienung deine Getränke.'}</div>`}
-      <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(ui.takt)}</div>
-      <div><div class="lbl">Wann kommt das erste Getränk?</div><div class="when" role="group" aria-label="Erstes Getränk">
-        <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${!ui.later}">Jetzt gleich<small>${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</small></button>
-        <button type="button" class="chip" data-act="later" data-v="1" aria-pressed="${ui.later}">In ${ui.takt} Min<small>ich hab noch was</small></button></div></div>
-      <div><div class="lbl">Erstes Getränk</div>${menuList(ui.item, 'first')}</div>
-      <ol class="how">${ui.later ? `<li><b>In ${ui.takt} Min</b> ${ab ? 'wird' : 'kommt'} dein ${esc(C.drinks[ui.item][0])}${ab ? ' zubereitet' : ''}. Bis dahin genießt du, was du schon hast.</li>`
-        : `<li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(C.drinks[ui.item][0])}${ab ? ' zubereitet' : ''}.</li>`}<li><b>Danach</b> alle ${ui.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
+      <div class="ask"><h1 class="title">Schon bestellt?</h1>
+        <div class="yn" role="group" aria-label="Schon bestellt?">
+          <button type="button" class="chip" data-act="later" data-v="1" aria-pressed="${L === true}">Ja<small>ich hab schon was</small></button>
+          <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${L === false}">Nein<small>jetzt bestellen</small></button></div></div>
+      ${L === null ? '' : L ? yes : no}
     </div>
-    <div class="dock"><button type="button" class="btn primary${B}" data-act="start" ${can ? '' : 'disabled'}>${busy() ? 'Wird gesendet …' : can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
+    ${L === null ? '' : `<div class="dock"><button type="button" class="btn primary${B}" data-act="start" ${can ? '' : 'disabled'}>${busy() ? 'Wird gesendet …' : label}</button></div>`}`;
   } else if (t.screen === 'live') {
     const nx = C.drinks[t.next] || C.drinks[0], open = t.orders.filter(o => o.status !== 'erledigt');
     const held = isHeld(t, now()); shownHeld = held;
@@ -209,7 +211,7 @@ document.addEventListener('click', e => {
     case 'stop': sheetOpen = null; return cmd('stop');
     case 'pay': return cmd('pay', { m: v });
     case 'paychange': return cmd('paychange');
-    case 'clear': return cmd('clear');
+    case 'clear': ui.later = null; return cmd('clear');
     case 'stillhere': return cmd('stillhere');
     default: return;
   }

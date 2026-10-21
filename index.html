@@ -99,6 +99,10 @@ button,input{font:inherit;color:inherit}
 .chip[aria-pressed="true"] small{color:var(--accent-ink);opacity:.8}
 .when{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .when .chip{font:600 15px var(--f-body);padding:11px 8px 10px}
+.ask{display:flex;flex-direction:column;gap:14px}
+.yn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.yn .chip{font:700 22px var(--f-display);padding:16px 8px 14px}
+.yn .chip small{font:500 12px var(--f-body);margin-top:2px}
 .menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
 .item{display:grid;grid-template-columns:1fr auto 20px;align-items:center;gap:12px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
 .item:first-child{border-top:0}
@@ -374,7 +378,7 @@ let skew = 0; const now = () => Date.now() + skew;
 // ?tab=rechner öffnet gleich den Rechner (Knopf „Was bringt’s?“ auf der Theke)
 const S = { tab: new URLSearchParams(location.search).get('tab') === 'rechner' ? 'calc' : 'demo', pane: 'gast' };
 function reset() {
-  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0, later: false,
+  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0, later: null,
     start: null, nextAt: null, lastAuto: null, lastAct: null, remindAt: 0, held: false, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
 }
 reset();
@@ -444,24 +448,26 @@ function bon(final) {
 function gastHTML() {
   const ab = C.service === 'abholen';
   if (S.screen === 'checkin') {
-    const can = C.place !== 'tisch' || S.table;
+    // Startseite: erst die eine Frage „Schon bestellt?“, dann nur das, was dazu passt
+    const can = C.place !== 'tisch' || S.table, L = S.later, item = esc(drink(S.first)[0]);
+    const tables = C.place === 'tisch' ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(t => `<button type="button" class="chip" data-act="table" data-v="${t}" aria-pressed="${S.table === t}">${t}</button>`).join('')}</div></div>` : '';
+    const yes = `${tables}
+      <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(S.takt)}</div>
+      <div><div class="lbl">Was soll dann kommen?</div>${menuList(S.first, 'first')}</div>
+      <p class="note">In ${S.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${S.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
+    const no = `${tables}
+      <div><div class="lbl">Dann bestell direkt hier</div>${menuList(S.first, 'first')}</div>
+      <div><div class="lbl">Danach automatisch alle</div>${taktBlock(S.takt)}</div>
+      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${S.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
+    const label = !can ? 'Erst Tisch wählen' : L ? `Ticker starten · nächstes in ${S.takt} Min` : `${item} bestellen`;
     return `<div class="scroll"><div class="scr">
-      ${topBar(`<span class="pill">${C.place === 'tisch' ? 'Check-in' : 'Tisch ' + S.card}</span>`)}
-      <section><div class="banner" style="background:var(--accent-soft);display:inline-flex;gap:8px;align-items:center;align-self:flex-start;font-weight:600;color:var(--accent);border-radius:999px;padding:7px 12px;font-size:13px"><span style="width:16px;height:16px;display:inline-flex">${ICON.nfc}</span>Ticker-Karte erkannt</div>
-      <h2 class="title">Bleib so lange du willst. Der Ticker bestellt nach.</h2>
-      <p class="lead">Im festen Takt ${ab ? 'wird ein Getränk für dich zubereitet' : 'kommt ein Getränk an deinen Platz'}, bis du stoppst. Bezahlt wird beim Gehen.</p></section>
-      ${C.place === 'tisch'
-        ? `<div><div class="lbl">Wo sitzt du?</div><div class="chips tables">${Array.from({ length: C.tables }, (_, i) => i + 1).map(t => `<button type="button" class="chip" data-act="table" data-v="${t}" aria-pressed="${S.table === t}">${t}</button>`).join('')}</div></div>`
-        : `<div class="banner">Du sitzt an <b>Tisch ${S.card}</b>. ${ab ? 'Darüber erkennt dich die Theke.' : 'Dorthin bringt die Bedienung deine Getränke.'}</div>`}
-      <div><div class="lbl">${C.takte.length > 1 ? 'Wie oft soll etwas kommen?' : 'Takt'}</div>${taktBlock(S.takt)}</div>
-      <div><div class="lbl">Wann kommt das erste Getränk?</div><div class="when" role="group" aria-label="Erstes Getränk">
-        <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${!S.later}">Jetzt gleich<small>${ab ? 'wird sofort zubereitet' : 'kommt sofort'}</small></button>
-        <button type="button" class="chip" data-act="later" data-v="1" aria-pressed="${S.later}">In ${S.takt} Min<small>ich hab noch was</small></button></div></div>
-      <div><div class="lbl">Erstes Getränk</div>${menuList(S.first, 'first')}</div>
-      <ol class="how">${S.later ? `<li><b>In ${S.takt} Min</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}. Bis dahin genießt du, was du schon hast.</li>`
-        : `<li><b>Jetzt</b> ${ab ? 'wird' : 'kommt'} dein ${esc(drink(S.first)[0])}${ab ? ' zubereitet' : ''}.</li>`}<li><b>Danach</b> alle ${S.takt} Min ein Getränk.</li><li><b>Ticker stoppen</b>, wenn du gehst. Du zahlst nur, was gekommen ist.</li></ol>
+      <div class="ask"><h2 class="title">Schon bestellt?</h2>
+        <div class="yn" role="group" aria-label="Schon bestellt?">
+          <button type="button" class="chip" data-act="later" data-v="1" aria-pressed="${L === true}">Ja<small>ich hab schon was</small></button>
+          <button type="button" class="chip" data-act="later" data-v="0" aria-pressed="${L === false}">Nein<small>jetzt bestellen</small></button></div></div>
+      ${L === null ? '' : L ? yes : no}
     </div></div>
-    <div class="dock"><button type="button" class="btn primary" data-act="start" ${can ? '' : 'disabled'}>${can ? 'Ticker starten' : 'Erst Tisch wählen'}</button></div>`;
+    ${L === null ? '' : `<div class="dock"><button type="button" class="btn primary" data-act="start" ${can ? '' : 'disabled'}>${label}</button></div>`}`;
   }
   if (S.screen === 'live') {
     const n = drink(S.next), open = openOrders(), ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
