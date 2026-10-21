@@ -129,6 +129,19 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await laptop.getByText('· fest').first().waitFor();
   });
 
+  await t.test('Takt ändern gilt erst ab der nächsten Runde, keine sofortige Bestellung', async () => {
+    assert.strictEqual(await phone.locator('#app [data-act=takt]').count(), 0);         // keine Takt-Knöpfe mehr im Bild
+    const rows = await phone.locator('.bon-row').count();
+    await phone.click('#app [data-act=sheet][data-v=takt]');
+    await phone.click('.sheet [data-act=takt][data-v="15"]');
+    await phone.getByText(/alle 15 Min/).first().waitFor();                              // „ab … Uhr alle 15 Min“
+    await laptop.getByText('alle 30 Min → 15').waitFor();
+    await laptop.waitForTimeout(1200);
+    assert.strictEqual(await phone.locator('.bon-row').count(), rows);                  // nichts sofort bestellt
+    await laptop.click('[data-act=ff][data-v="15"]');                                    // nächste Runde kommt
+    await phone.locator('.taktline b', { hasText: 'alle 15 Min' }).waitFor();
+  });
+
   await t.test('Zweite Karte läuft parallel', async () => {
     await phone2.locator('[data-act=later]').first().waitFor();
     await phone2.click('[data-act=later][data-v="0"]');

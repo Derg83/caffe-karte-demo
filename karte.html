@@ -149,7 +149,7 @@ function render() {
           : `<span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um ${clock(t.nextAt)} Uhr</span>`}</div></div>
       ${st}
       ${nextBlock(t, C)}
-      ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(t.takt)}</div>` : ''}
+      ${taktLine(t, C)}
       ${planBlock(t, C)}
       ${bon(t, C, false)}
       <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
@@ -191,17 +191,22 @@ function nextBlock(t, C) {
   return `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${nn ? `<small class="onote">${esc(nn)}</small>` : ''}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
 }
 // Vorgemerkt oder der Knopf zum Vorausplanen, ganz unten
+// Takt als eine Zeile; ändern öffnet die Auswahl. Neuer Takt gilt ab der nächsten Runde.
+function taktLine(t, C) {
+  const can = C.takte.length > 1;
+  return `<div class="taktline"><span>Takt: <b>alle ${t.takt} Min</b>${t.pt ? `<small>ab ${clock(t.nextAt)} Uhr alle ${t.pt} Min</small>` : ''}</span>${can ? '<button type="button" class="link" data-act="sheet" data-v="takt">ändern</button>' : ''}</div>`;
+}
 function planBlock(t, C) {
   const plan = t.plan || [];
   return plan.length
-    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${plan.map((x, k) => `<div class="pline"><span class="mono">${clock(t.nextAt + k * t.takt * 60000)}</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
+    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${plan.map((x, k) => `<div class="pline"><span class="mono">${clock(planAt(t, k))}</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
     : PLAN_BTN;
 }
 // Planer: Entwurf im Handy (Getränk und Notiz je Runde), wird erst mit „Übernehmen“ geschickt
 let draft = null;
-const planTakt = t => (t ? t.takt : ui.takt) * 60000;
+const planTakt = t => (t ? (t.pt || t.takt) : ui.takt) * 60000;
 // Uhrzeit der geplanten Runde k: nach dem Start ab der nächsten Runde, vorher ab einem Takt nach jetzt
-const planAt = (t, k) => (t ? t.nextAt : now() + planTakt()) + k * planTakt(t);
+const planAt = (t, k) => (t ? t.nextAt : now() + planTakt()) + k * planTakt(t);   // planTakt berücksichtigt einen geänderten Takt
 function openPlanner(t) {
   const src = t ? (t.plan || []) : (ui.plan || []);
   draft = src.map(x => ({ i: x.i, n: x.n || '' }));
@@ -235,6 +240,7 @@ function renderSheet(t) {
   if (!sheetOpen || !t || t.screen !== 'live') { el.innerHTML = ''; return; }
   if (sheetOpen === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Änderbar bis ${clock(t.nextAt - LOCK_BEFORE)} Uhr. Erst Notiz, dann Getränk antippen.</p>${noteField('sheet', sheetNote)}${menuList(nextItem(t), 'next')}`;
   if (sheetOpen === 'plan' && draft) body = plannerHTML(t, C);
+  if (sheetOpen === 'takt') body = `<h2>Wie oft soll etwas kommen?</h2><p class="note">Gilt ab der nächsten Runde. Die Runde um ${clock(t.nextAt)} Uhr kommt wie geplant.</p>${taktBlock(t.pt || t.takt)}`;
   if (sheetOpen === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${noteField('sheet', sheetNote)}${menuList(null, 'extra')}`;
   if (sheetOpen === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
     <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${count(t)}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
@@ -273,7 +279,7 @@ document.addEventListener('click', e => {
   const a = b.dataset.act, v = b.dataset.v;
   switch (a) {
     case 'table': ui.table = +v; break;
-    case 'takt': { const t = S.tickets && S.tickets[n]; if (t && t.screen === 'live') return cmd('takt', { takt: +v }); ui.takt = +v; break; }
+    case 'takt': { const t = S.tickets && S.tickets[n]; if (t && t.screen === 'live') { sheetOpen = null; renderSheet(t); return cmd('takt', { takt: +v }); } ui.takt = +v; break; }
     case 'first': ui.item = +v; break;
     case 'later': ui.later = v === '1'; break;
     case 'start': return cmd('start', { takt: ui.takt, item: ui.item, note: cleanNote(ui.note), table: ui.table, later: ui.later, plan: (ui.plan || []).map(x => ({ i: x.i, n: cleanNote(x.n) })) });

@@ -191,7 +191,8 @@ function onCmd(m) {
       toast(`${t.place}: ${m.plan.length ? m.plan.length + ' Getränke vorgemerkt' : 'Vormerkung gelöscht'}`);
       break;
     }
-    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
+    // Neuer Takt gilt erst nach der nächsten Runde: die kommende Runde bleibt zu ihrer Zeit, nie eine sofortige Bestellung
+    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); if (m.takt === t.takt) delete t.pt; else t.pt = m.takt; } break;
     case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); addOrder(t, m.item, true, undefined, m.note); toast(`${t.place}: extra ${d[m.item][0]}${cleanNote(m.note) ? ` (${cleanNote(m.note)})` : ''}`); } break;
     case 'stillhere': if (t && t.screen === 'live') { touch(t); toast(`${t.place}: Gast ist noch da`); } break;
     case 'stop': if (t && t.screen === 'live') { stopTicket(t); beep(); } break;
@@ -233,6 +234,7 @@ function advanceAll() {
       // Vorgemerkte Runde zuerst, sonst das „Als Nächstes“-Getränk; Zeit immer im Takt
       const pl = t.plan && t.plan.length ? t.plan.shift() : { i: t.next, n: t.nn };
       t.lastAuto = at; addOrder(t, pl.i, false, at, pl.n);
+      if (t.pt) { t.takt = t.pt; delete t.pt; }   // ab jetzt der neue Takt
       t.nextAt = at + t.takt * MIN; ch = true; rounds++;
     }
     if (checkRemind(t, now())) ch = true;
@@ -280,7 +282,7 @@ function render() {
       <div>
         <section><div class="lbl">Laptop-Ticker (${list.filter(x => x.t.screen === 'live').length} aktiv)</div>
           ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? (() => { const dn = i => esc((T.cfg.drinks[i] || T.cfg.drinks[0])[0]), later = (t.plan || []).slice(1); const nn = nextNote(t); return `Nächstes: ${dn(nextItem(t))}${nn ? ` (${esc(nn)})` : ''}${canChange(t, now()) ? '' : ' · fest'} in <span class="mono" data-cd="${t.nextAt}"></span>${later.length ? ` · danach vorgemerkt: ${later.map(x => dn(x.i) + (x.n ? ` (${esc(x.n)})` : '')).join(', ')}` : ''}`; })() : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
-            <div class="facts"><span>Takt<b>alle ${t.takt} Min</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
+            <div class="facts"><span>Takt<b>alle ${t.takt} Min${t.pt ? ` → ${t.pt}` : ''}</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
             ${t.screen === 'live' ? `<div class="row2"><button type="button" class="btn sm ghost" data-act="stopT" data-n="${n}">Ticker beenden</button></div>` : ''}</div>`).join('') : '<p class="empty">Noch kein Ticker. Lass eine Karte scannen.</p>'}
         </section>
         ${done.length ? `<section><div class="lbl">Erledigt</div>${done.slice(0, 6).map(({ t, o }) => `<div class="tk served">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${clock(o.at)} Uhr</span></div><span class="st st-done">${ab ? 'abgeholt' : 'serviert'}</span></div>`).join('')}</section>` : ''}
