@@ -83,7 +83,7 @@ const CKL = (() => {
 
   /* ---------- Vorausplanen: bis zu 5 Getränke, unverbindlich; Zeiten ergeben sich aus dem Takt ---------- */
   // t.plan = [{ i: Getränk, n: Notiz }] für die nächsten Runden; ist der Plan leer, kommt t.next (mit Notiz t.nn)
-  const PLAN_MAX = 5, LOCK_BEFORE = 10 * 60000;
+  const PLAN_MAX = 10, LOCK_BEFORE = 10 * 60000;
   const cleanNote = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 60);
   const nextItem = t => t.plan && t.plan.length ? t.plan[0].i : t.next;
   const nextNote = t => t.plan && t.plan.length ? (t.plan[0].n || '') : (t.nn || '');

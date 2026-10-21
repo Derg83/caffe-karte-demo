@@ -105,6 +105,12 @@ button,input{font:inherit;color:inherit}
 .yn .chip small{font:500 12px var(--f-body);margin-top:2px}
 .planbtn{width:100%;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left}
 .planbtn svg{width:20px;height:20px;flex:none;color:var(--accent)}
+.pcount{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pcount .lbl{margin:0}
+.stepper{display:flex;align-items:center;gap:6px;flex:none}
+.stepper .mini{min-width:44px;min-height:44px;font-size:20px;line-height:1}
+.stepper .mini:disabled{opacity:.35;cursor:default}
+.stepper b{min-width:32px;text-align:center;font-size:20px}
 .addnote{align-self:flex-start;border:0;background:none;color:var(--accent);font:600 14px var(--f-body);cursor:pointer;padding:10px 0;min-height:40px;display:inline-flex;align-items:center;gap:6px}
 .addnote span{font-size:18px;line-height:1}
 .addnote.sm{padding:6px 0;min-height:34px;font-size:13px}
@@ -438,7 +444,7 @@ function checkRemind(at) {
   return true;
 }
 // „Als Nächstes“ wie gewohnt, darunter Vorausplanen: bis zu 5 Getränke mit Notiz, im Takt, unverbindlich
-const PLAN_MAX = 5, LOCK_BEFORE = 10 * MIN;
+const PLAN_MAX = 10, LOCK_BEFORE = 10 * MIN;
 const nextItem = () => S.plan.length ? S.plan[0].i : S.next;
 const nextNote = () => S.plan.length ? (S.plan[0].n || '') : S.nn;
 const canChange = () => isHeld(now()) || S.nextAt - now() > LOCK_BEFORE;   // nächste Runde 10 Min vorher fest
@@ -468,8 +474,8 @@ const planAt = k => (S.screen === 'live' ? S.nextAt : now() + S.takt * MIN) + k 
 function plannerHTML() {
   const D = S.draft, fixed0 = S.screen === 'live' && !canChange();
   return `<h2>Du weißt schon, was es als Nächstes wird?</h2>
-    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
-    <div><div class="lbl">Wie viele im Voraus?</div><div class="chips" role="group" aria-label="Anzahl" style="grid-template-columns:repeat(${PLAN_MAX},1fr)">${Array.from({ length: PLAN_MAX }, (_, k) => k + 1).map(c => `<button type="button" class="chip" data-act="pcount" data-v="${c}" aria-pressed="${D.length === c}">${c}</button>`).join('')}</div></div>
+    <p class="note">Plane bis zu ${PLAN_MAX} Runden im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
+    <div class="pcount"><span class="lbl">Wie viele Runden im Voraus?</span><div class="stepper" role="group" aria-label="Anzahl Runden"><button type="button" class="mini" data-act="pstep" data-v="-1" aria-label="Eine Runde weniger" ${D.length <= 1 ? 'disabled' : ''}>−</button><b class="mono" aria-live="polite">${D.length}</b><button type="button" class="mini" data-act="pstep" data-v="1" aria-label="Eine Runde mehr" ${D.length >= PLAN_MAX ? 'disabled' : ''}>+</button></div></div>
     <div class="plan">${D.map((x, k) => k === 0 && fixed0
       ? `<div class="prow fixed"><span class="ptime mono">${clock(planAt(k))}</span><span class="pname">${esc(drink(x.i)[0])} ${noteTag(x.n)}</span><span class="qfix">fest</span></div>`
       : `<div class="prow"><span class="ptime mono">${clock(planAt(k))}</span><div class="pfields">
@@ -807,11 +813,11 @@ function act(a, v, el) {
     case 'planner': {
       noteOpen.clear();
       const src = S.screen === 'live' ? S.plan : (S.prePlan || []), D = src.map(x => ({ i: x.i, n: x.n || '' }));
-      if (!D.length) { const f = S.screen === 'live' ? { i: nextItem(), n: nextNote() } : { i: S.first, n: S.note }; while (D.length < 3) D.push({ ...f }); }
+      if (!D.length) { const f = S.screen === 'live' ? { i: nextItem(), n: nextNote() } : { i: S.first, n: S.note }; while (D.length < 2) D.push({ ...f }); }
       S.draft = D; S.sheet = 'plan'; gastSheet(); return;
     }
-    case 'pcount': {
-      const D = S.draft, c = +v;
+    case 'pstep': {   // eine Runde mehr oder weniger, 1 bis 10
+      const D = S.draft, c = Math.min(PLAN_MAX, Math.max(1, D.length + Number(v)));
       while (D.length < c) D.push({ ...D[D.length - 1] });
       while (D.length > c) D.pop();
       gastSheet(); return;

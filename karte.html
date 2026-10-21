@@ -205,7 +205,7 @@ const planAt = (t, k) => (t ? t.nextAt : now() + planTakt()) + k * planTakt(t);
 function openPlanner(t) {
   const src = t ? (t.plan || []) : (ui.plan || []);
   draft = src.map(x => ({ i: x.i, n: x.n || '' }));
-  if (!draft.length) { const first = t ? { i: nextItem(t), n: nextNote(t) } : { i: ui.item, n: ui.note }; while (draft.length < 3) draft.push({ ...first }); }
+  if (!draft.length) { const first = t ? { i: nextItem(t), n: nextNote(t) } : { i: ui.item, n: ui.note }; while (draft.length < 2) draft.push({ ...first }); }
   sheetOpen = 'plan'; renderSheet(t);
 }
 function startPlanBlock(C) {
@@ -215,8 +215,8 @@ function startPlanBlock(C) {
 function plannerHTML(t, C) {
   const fixed0 = !!t && !canChange(t, now());
   return `<h2>Du weißt schon, was es als Nächstes wird?</h2>
-    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
-    <div><div class="lbl">Wie viele im Voraus?</div><div class="chips" role="group" aria-label="Anzahl" style="grid-template-columns:repeat(${PLAN_MAX},1fr)">${Array.from({ length: PLAN_MAX }, (_, k) => k + 1).map(c => `<button type="button" class="chip" data-act="pcount" data-v="${c}" aria-pressed="${draft.length === c}">${c}</button>`).join('')}</div></div>
+    <p class="note">Plane bis zu ${PLAN_MAX} Runden im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
+    <div class="pcount"><span class="lbl">Wie viele Runden im Voraus?</span><div class="stepper" role="group" aria-label="Anzahl Runden"><button type="button" class="mini" data-act="pstep" data-v="-1" aria-label="Eine Runde weniger" ${draft.length <= 1 ? 'disabled' : ''}>−</button><b class="mono" aria-live="polite">${draft.length}</b><button type="button" class="mini" data-act="pstep" data-v="1" aria-label="Eine Runde mehr" ${draft.length >= PLAN_MAX ? 'disabled' : ''}>+</button></div></div>
     <div class="plan">${draft.map((x, k) => k === 0 && fixed0
       ? `<div class="prow fixed"><span class="ptime mono">${clock(planAt(t, k))}</span><span class="pname">${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</span><span class="qfix">fest</span></div>`
       : `<div class="prow"><span class="ptime mono">${clock(planAt(t, k))}</span><div class="pfields">
@@ -289,8 +289,8 @@ document.addEventListener('click', e => {
       return cmd('next', { item: +v, note: cleanNote(sheetNote) });
     }
     case 'planner': noteOpen.clear(); return openPlanner(S.tickets[n] && S.tickets[n].screen === 'live' ? S.tickets[n] : null);
-    case 'pcount': {
-      const t = S.tickets[n], c = +v;
+    case 'pstep': {   // eine Runde mehr oder weniger, 1 bis 10
+      const t = S.tickets[n], c = Math.min(PLAN_MAX, Math.max(1, draft.length + Number(v)));
       while (draft.length < c) draft.push({ ...draft[draft.length - 1] });
       while (draft.length > c) draft.pop();
       return renderSheet(t);

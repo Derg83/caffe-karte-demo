@@ -87,9 +87,15 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     // Tisch 1 läuft im 30-Minuten-Takt mit Flat White
     await phone.getByText('Als Nächstes', { exact: true }).waitFor();
     await phone.click('[data-act=planner]');
-    assert.strictEqual(await phone.locator('.prow').count(), 3);
+    assert.strictEqual(await phone.locator('.prow').count(), 2);                      // Standard: 2 Runden
     assert.strictEqual(await phone.locator('[data-act=ptime]').count(), 0);          // keine Zeit-Knöpfe
-    await phone.click('.sheet [data-act=pcount][data-v="4"]');
+    assert.ok(await phone.locator('[data-act=pstep][data-v="-1"]').isEnabled());
+    await phone.click('[data-act=pstep][data-v="-1"]');
+    assert.ok(await phone.locator('[data-act=pstep][data-v="-1"]').isDisabled());   // mindestens 1
+    for (let k = 0; k < 12; k++) { const plus = phone.locator('[data-act=pstep][data-v="1"]'); if (await plus.isEnabled()) await plus.click(); }
+    assert.strictEqual(await phone.locator('.prow').count(), 10);                     // höchstens 10
+    assert.ok(await phone.locator('[data-act=pstep][data-v="1"]').isDisabled());
+    for (let k = 0; k < 6; k++) await phone.click('[data-act=pstep][data-v="-1"]');
     const times = (await phone.locator('.prow .ptime').allTextContents()).map(x => { const [h, m] = x.split(':').map(Number); return h * 60 + m; });
     assert.deepStrictEqual(times.slice(1).map((m, k) => (m - times[k] + 1440) % 1440), [30, 30, 30]);   // im Takt
     await phone.selectOption('select[data-pi="1"]', '0');                          // Runde 2: Cappuccino
@@ -187,7 +193,6 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     assert.strictEqual(await p4.locator('[data-act=start]').textContent(), 'Ticker starten · nächstes in 40 Min');
     // Schon vor dem Start vorausplanen: 2 Getränke, das zweite ein Flat White
     await p4.click('[data-act=planner]');
-    await p4.click('.sheet [data-act=pcount][data-v="2"]');
     await p4.selectOption('select[data-pi="1"]', '1');                // Flat White
     await p4.click('[data-act=psave]');
     await p4.getByText('Vorgemerkt', { exact: true }).waitFor();
