@@ -103,7 +103,11 @@ button,input{font:inherit;color:inherit}
 .yn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .yn .chip{font:700 22px var(--f-display);padding:16px 8px 14px}
 .yn .chip small{font:500 12px var(--f-body);margin-top:2px}
-.planbtn{width:100%;font-weight:600}
+.planbtn{width:100%;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left}
+.planbtn svg{width:20px;height:20px;flex:none;color:var(--accent)}
+.addnote{align-self:flex-start;border:0;background:none;color:var(--accent);font:600 14px var(--f-body);cursor:pointer;padding:10px 0;min-height:40px;display:inline-flex;align-items:center;gap:6px}
+.addnote span{font-size:18px;line-height:1}
+.addnote.sm{padding:6px 0;min-height:34px;font-size:13px}
 .planbox{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:12px 14px}
 .planbox .lbl{margin:0}
 .pline{display:grid;grid-template-columns:52px minmax(0,1fr);gap:10px;font-size:15px}
@@ -438,18 +442,25 @@ const PLAN_MAX = 5, LOCK_BEFORE = 10 * MIN;
 const nextItem = () => S.plan.length ? S.plan[0].i : S.next;
 const nextNote = () => S.plan.length ? (S.plan[0].n || '') : S.nn;
 const canChange = () => isHeld(now()) || S.nextAt - now() > LOCK_BEFORE;   // nächste Runde 10 Min vorher fest
-const noteField = (key, val, small) => `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`;
+// Zugeklappt als „＋ Notiz hinzufügen“; offen, sobald angetippt oder schon etwas eingetragen ist
+const noteOpen = new Set();
+const noteField = (key, val, small) => val || noteOpen.has(key)
+  ? `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`
+  : `<button type="button" class="addnote${small ? ' sm' : ''}" data-act="noteopen" data-v="${key}"><span aria-hidden="true">＋</span> Notiz hinzufügen</button>`;
+const PLAN_BTN = '<button type="button" class="btn ghost planbtn" data-act="planner"><span>Du weißt schon, was es als Nächstes wird?</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
 const noteTag = n => n ? `<small class="onote">${esc(n)}</small>` : '';
 function nextBlock() {
   const d = drink(nextItem()), ok = canChange();
-  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${noteTag(nextNote())}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
-  const planned = S.plan.length
+  return `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${noteTag(nextNote())}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
+}
+// Vorgemerkt oder der Knopf zum Vorausplanen, ganz unten
+function planBlock() {
+  return S.plan.length
     ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.plan.map((x, k) => `<div class="pline"><span class="mono">${clock(S.nextAt + k * S.takt * MIN)}</span><b>${esc(drink(x.i)[0])} ${noteTag(x.n)}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
-    : '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
-  return card + planned;
+    : PLAN_BTN;
 }
 function startPlanBlock() {
-  if (!S.prePlan) return '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
+  if (!S.prePlan) return PLAN_BTN;
   return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.prePlan.map((x, k) => `<div class="pline"><span class="mono">in ${(k + 1) * S.takt} Min</span><b>${esc(drink(x.i)[0])} ${noteTag(x.n)}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
 }
 // Uhrzeit der geplanten Runde k: nach dem Start ab der nächsten Runde, vorher ab einem Takt nach jetzt
@@ -519,14 +530,14 @@ function gastHTML() {
       <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(S.takt)}</div>
       <div><div class="lbl">Was soll dann kommen?</div>${menuList(S.first, 'first')}</div>
       ${noteField('start', S.note)}
-      ${startPlanBlock()}
-      <p class="note">In ${S.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${S.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
+      <p class="note">In ${S.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${S.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>
+      ${startPlanBlock()}`;
     const no = `${tables}
       <div><div class="lbl">Dann bestell direkt hier</div>${menuList(S.first, 'first')}</div>
       ${noteField('start', S.note)}
-      ${startPlanBlock()}
       <div><div class="lbl">Danach automatisch alle</div>${taktBlock(S.takt)}</div>
-      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${S.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
+      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${S.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>
+      ${startPlanBlock()}`;
     const label = !can ? 'Erst Tisch wählen' : L ? `Ticker starten · nächstes in ${S.takt} Min` : `${item} bestellen`;
     return `<div class="scroll"><div class="scr">
       <div class="ask"><h2 class="title">Schon bestellt?</h2>
@@ -554,6 +565,7 @@ function gastHTML() {
       ${st}
       ${nextBlock()}
       ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(S.takt)}</div>` : ''}
+      ${planBlock()}
       ${bon(false)}
       <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
     </div></div>
@@ -778,7 +790,13 @@ function act(a, v, el) {
     case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.nn = cleanNote(S.note); S.plan = S.prePlan || []; S.prePlan = null; S.screen = 'live';
       if (S.later) toast(`Ticker läuft, erste Runde in ${S.takt} Min`); else { addOrder(S.first, false, undefined, S.nn); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); }
       break;
-    case 'sheet': S.sheet = v; S.sheetNote = v === 'menu' ? nextNote() : ''; gastSheet(); return;
+    case 'noteopen': {
+      noteOpen.add(v);
+      if (v === 'start') render(); else gastSheet();
+      const el = document.querySelector(`[data-note="${v}"]`); if (el) el.focus();
+      return;
+    }
+    case 'sheet': noteOpen.clear(); S.sheet = v; S.sheetNote = v === 'menu' ? nextNote() : ''; gastSheet(); return;
     case 'closesheet': S.sheet = null; S.draft = null; gastSheet(); return;
     case 'stillhere': touch(); S.held = false; toast('Weiter geht’s. Die Theke sieht: Gast ist noch da.'); break;
     case 'pick': {
@@ -787,6 +805,7 @@ function act(a, v, el) {
       touch(); const nt = cleanNote(S.sheetNote); if (S.plan.length) S.plan[0] = { i: +v, n: nt }; else { S.next = +v; S.nn = nt; } break;
     }
     case 'planner': {
+      noteOpen.clear();
       const src = S.screen === 'live' ? S.plan : (S.prePlan || []), D = src.map(x => ({ i: x.i, n: x.n || '' }));
       if (!D.length) { const f = S.screen === 'live' ? { i: nextItem(), n: nextNote() } : { i: S.first, n: S.note }; while (D.length < 3) D.push({ ...f }); }
       S.draft = D; S.sheet = 'plan'; gastSheet(); return;

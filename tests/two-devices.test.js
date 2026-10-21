@@ -22,6 +22,12 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     return p;
   };
   const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+  // Notizfeld ist zugeklappt („＋ Notiz hinzufügen“): erst öffnen, dann tippen
+  const note = async (p, key, text) => {
+    const btn = p.locator(`[data-act=noteopen][data-v="${key}"]`);
+    if (await btn.count()) await btn.click();
+    await p.fill(`input[data-note="${key}"]`, text);
+  };
 
   const laptop = await open({ viewport: { width: 1280, height: 860 } }, 'Laptop', `${srv.url}/theke.html?k=test-topic-123&relay=${relay}&d=${TOMO}`);
   await laptop.getByText('Verbunden').waitFor();
@@ -50,7 +56,8 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await phone.click('[data-act=takt][data-v="30"]');
     await phone.click('[data-act=first][data-v="1"]');
     assert.strictEqual(await phone.locator('[data-act=start]').textContent(), 'Flat White bestellen');
-    await phone.fill('input[data-note="start"]', 'ohne Milch');
+    assert.ok(await phone.getByText('Notiz hinzufügen').isVisible());              // zugeklappt
+    await note(phone, 'start', 'ohne Milch');
     await phone.click('[data-act=start]');
     await phone.locator('.pill.live').waitFor();
     await laptop.getByText('Zu bringen (1)').waitFor();
@@ -86,7 +93,7 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     const times = (await phone.locator('.prow .ptime').allTextContents()).map(x => { const [h, m] = x.split(':').map(Number); return h * 60 + m; });
     assert.deepStrictEqual(times.slice(1).map((m, k) => (m - times[k] + 1440) % 1440), [30, 30, 30]);   // im Takt
     await phone.selectOption('select[data-pi="1"]', '0');                          // Runde 2: Cappuccino
-    await phone.fill('input[data-note="p1"]', 'mit Hafermilch');
+    await note(phone, 'p1', 'mit Hafermilch');
     await phone.click('[data-act=psave]');
     await phone.locator('.planbox').waitFor();
     assert.strictEqual(await phone.locator('.pline').count(), 4);
@@ -100,11 +107,11 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
 
   await t.test('Notiz bei „Als Nächstes“ und bei Extra', async () => {
     await phone.click('.card [data-act=sheet][data-v=menu]');
-    await phone.fill('.sheet input[data-note="sheet"]', 'ohne Zucker');
+    await note(phone, 'sheet', 'ohne Zucker');
     await phone.click('.sheet [data-act=next][data-v="1"]');
     await phone.locator('.card .onote', { hasText: 'ohne Zucker' }).waitFor();
     await phone.click('#app [data-act=sheet][data-v=extra]');
-    await phone.fill('.sheet input[data-note="sheet"]', 'extra heiß');
+    await note(phone, 'sheet', 'extra heiß');
     await phone.click('.sheet [data-act=extra][data-v="0"]');
     await laptop.locator('.tk', { hasText: 'Extra' }).locator('.tnote', { hasText: 'extra heiß' }).waitFor();
   });

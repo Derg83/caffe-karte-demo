@@ -115,14 +115,14 @@ function render() {
       <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(ui.takt)}</div>
       <div><div class="lbl">Was soll dann kommen?</div>${menuList(ui.item, 'first')}</div>
       ${noteField('start', ui.note)}
-      ${startPlanBlock(C)}
-      <p class="note">In ${ui.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${ui.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
+      <p class="note">In ${ui.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${ui.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>
+      ${startPlanBlock(C)}`;
     const no = `${tables}
       <div><div class="lbl">Dann bestell direkt hier</div>${menuList(ui.item, 'first')}</div>
       ${noteField('start', ui.note)}
-      ${startPlanBlock(C)}
       <div><div class="lbl">Danach automatisch alle</div>${taktBlock(ui.takt)}</div>
-      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${ui.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
+      <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${ui.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>
+      ${startPlanBlock(C)}`;
     const label = !can ? 'Erst Tisch wählen' : L ? `Ticker starten · nächstes in ${ui.takt} Min` : `${item} bestellen`;
     html = `<div class="scr">
       <div class="ask"><h1 class="title">Schon bestellt?</h1>
@@ -150,6 +150,7 @@ function render() {
       ${st}
       ${nextBlock(t, C)}
       ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(t.takt)}</div>` : ''}
+      ${planBlock(t, C)}
       ${bon(t, C, false)}
       <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
     </div>
@@ -176,17 +177,25 @@ function render() {
 }
 // Notizfeld, z. B. „ohne Milch“. Der Wert landet über das input-Ereignis in ui.note, sheetNote oder draft[k].n
 let sheetNote = '';
-const noteField = (key, val, small) => `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`;
+// Zugeklappt als „＋ Notiz hinzufügen“; offen, sobald angetippt oder schon etwas eingetragen ist
+const noteOpen = new Set();
+const noteField = (key, val, small) => val || noteOpen.has(key)
+  ? `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`
+  : `<button type="button" class="addnote${small ? ' sm' : ''}" data-act="noteopen" data-v="${key}"><span aria-hidden="true">＋</span> Notiz hinzufügen</button>`;
+const PLAN_BTN = '<button type="button" class="btn ghost planbtn" data-act="planner"><span>Du weißt schon, was es als Nächstes wird?</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
 // „Als Nächstes“ wie gewohnt, darunter Vorausplanen (bis zu 5 Getränke, Zeiten im Takt, unverbindlich)
 let shownFixed = false;
 function nextBlock(t, C) {
   const d = C.drinks[nextItem(t)] || C.drinks[0], ok = canChange(t, now()), plan = t.plan || [], nn = nextNote(t);
   shownFixed = !ok;
-  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${nn ? `<small class="onote">${esc(nn)}</small>` : ''}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
-  const planned = plan.length
+  return `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${nn ? `<small class="onote">${esc(nn)}</small>` : ''}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
+}
+// Vorgemerkt oder der Knopf zum Vorausplanen, ganz unten
+function planBlock(t, C) {
+  const plan = t.plan || [];
+  return plan.length
     ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${plan.map((x, k) => `<div class="pline"><span class="mono">${clock(t.nextAt + k * t.takt * 60000)}</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
-    : '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
-  return card + planned;
+    : PLAN_BTN;
 }
 // Planer: Entwurf im Handy (Getränk und Notiz je Runde), wird erst mit „Übernehmen“ geschickt
 let draft = null;
@@ -200,7 +209,7 @@ function openPlanner(t) {
   sheetOpen = 'plan'; renderSheet(t);
 }
 function startPlanBlock(C) {
-  if (!ui.plan) return '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
+  if (!ui.plan) return PLAN_BTN;
   return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${ui.plan.map((x, k) => `<div class="pline"><span class="mono">in ${(k + 1) * ui.takt} Min</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
 }
 function plannerHTML(t, C) {
@@ -266,14 +275,20 @@ document.addEventListener('click', e => {
     case 'first': ui.item = +v; break;
     case 'later': ui.later = v === '1'; break;
     case 'start': return cmd('start', { takt: ui.takt, item: ui.item, note: cleanNote(ui.note), table: ui.table, later: ui.later, plan: (ui.plan || []).map(x => ({ i: x.i, n: cleanNote(x.n) })) });
-    case 'sheet': sheetOpen = v; sheetNote = v === 'menu' ? nextNote(S.tickets[n]) : ''; return renderSheet(S.tickets[n]);
+    case 'noteopen': {
+      noteOpen.add(v); const t = S.tickets[n];
+      if (v === 'start') render(); else renderSheet(t && t.screen === 'live' ? t : null);
+      const el = document.querySelector(`[data-note="${v}"]`); if (el) el.focus();
+      return;
+    }
+    case 'sheet': noteOpen.clear(); sheetOpen = v; sheetNote = v === 'menu' ? nextNote(S.tickets[n]) : ''; return renderSheet(S.tickets[n]);
     case 'close': sheetOpen = null; draft = null; return renderSheet(null);
     case 'next': {
       const t = S.tickets[n]; sheetOpen = null;
       if (!t || !canChange(t, now())) { renderSheet(t); return toast('Diese Runde ist schon fest und wird vorbereitet.'); }
       return cmd('next', { item: +v, note: cleanNote(sheetNote) });
     }
-    case 'planner': return openPlanner(S.tickets[n] && S.tickets[n].screen === 'live' ? S.tickets[n] : null);
+    case 'planner': noteOpen.clear(); return openPlanner(S.tickets[n] && S.tickets[n].screen === 'live' ? S.tickets[n] : null);
     case 'pcount': {
       const t = S.tickets[n], c = +v;
       while (draft.length < c) draft.push({ ...draft[draft.length - 1] });
