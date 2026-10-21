@@ -50,9 +50,11 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await phone.click('[data-act=takt][data-v="30"]');
     await phone.click('[data-act=first][data-v="1"]');
     assert.strictEqual(await phone.locator('[data-act=start]').textContent(), 'Flat White bestellen');
+    await phone.fill('input[data-note="start"]', 'ohne Milch');
     await phone.click('[data-act=start]');
     await phone.locator('.pill.live').waitFor();
     await laptop.getByText('Zu bringen (1)').waitFor();
+    await laptop.locator('.tk .tnote', { hasText: 'ohne Milch' }).waitFor();         // Notiz deutlich an der Theke
     assert.ok(await laptop.getByText('Flat White').first().isVisible());
     await shot(phone, 'handy-live');
   });
@@ -74,42 +76,44 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   });
 
   const phone2 = await open(PHONE, 'Handy 2', card1.replace('n=1', 'n=2'));
-  await t.test('Vorausplanen: Anzahl, Getränk, Zeit verschieben, folgende rücken mit', async () => {
-    // Tisch 1 läuft im 30-Minuten-Takt mit Flat White, nächste Runde in 30 Min
+  await t.test('Vorausplanen: Anzahl, Getränk und Notiz, Zeiten im Takt, nicht verschiebbar', async () => {
+    // Tisch 1 läuft im 30-Minuten-Takt mit Flat White
     await phone.getByText('Als Nächstes', { exact: true }).waitFor();
     await phone.click('[data-act=planner]');
-    await phone.getByText('Du weißt schon, was es als Nächstes wird?').first().waitFor();
     assert.strictEqual(await phone.locator('.prow').count(), 3);
+    assert.strictEqual(await phone.locator('[data-act=ptime]').count(), 0);          // keine Zeit-Knöpfe
     await phone.click('.sheet [data-act=pcount][data-v="4"]');
-    assert.strictEqual(await phone.locator('.prow').count(), 4);
-    const times = async () => phone.locator('.prow .ptime b').allTextContents();
-    const before = await times();
-    await phone.selectOption('select[data-pi="1"]', '0');
-    await phone.click('[data-act=ptime][data-v="1:1"]');            // Runde 2 fünf Minuten später
-    const after = await times();
-    const min = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
-    assert.deepStrictEqual(after.map(min).map((m, k) => m - min(before[k])), [0, 5, 5, 5]);   // folgende rücken mit
-    await phone.click('[data-act=ptime][data-v="0:-1"]');           // erste Runde 5 Min früher geht (noch 25 Min weg)
+    const times = (await phone.locator('.prow .ptime').allTextContents()).map(x => { const [h, m] = x.split(':').map(Number); return h * 60 + m; });
+    assert.deepStrictEqual(times.slice(1).map((m, k) => (m - times[k] + 1440) % 1440), [30, 30, 30]);   // im Takt
+    await phone.selectOption('select[data-pi="1"]', '0');                          // Runde 2: Cappuccino
+    await phone.fill('input[data-note="p1"]', 'mit Hafermilch');
     await phone.click('[data-act=psave]');
     await phone.locator('.planbox').waitFor();
     assert.strictEqual(await phone.locator('.pline').count(), 4);
-    await laptop.getByText(/vorgemerkt: .*Cappuccino/).waitFor();
-    // Vorspulen: erste vorgemerkte Runde kommt, dann die geplante Cappuccino-Runde
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await phone.waitForFunction(() => document.querySelectorAll('.pline').length === 3);   // eine weniger
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await phone.waitForFunction(() => [...document.querySelectorAll('.bon-row span:nth-child(2)')].some(e => e.textContent.startsWith('Cappuccino')));
+    await phone.locator('.pline').nth(1).getByText('mit Hafermilch').waitFor();
+    await laptop.getByText(/danach vorgemerkt: Cappuccino \(mit Hafermilch\)/).waitFor();
+    // Zwei Runden vorspulen: die zweite ist der Cappuccino mit Notiz, an der Theke gut sichtbar
+    await laptop.click('[data-act=ff][data-v="60"]');
+    await laptop.locator('.tk', { hasText: 'Cappuccino' }).locator('.tnote', { hasText: 'mit Hafermilch' }).waitFor();
+    await phone.waitForFunction(() => [...document.querySelectorAll('.bon-row')].some(e => /Cappuccino.*mit Hafermilch/.test(e.textContent)));
+  });
+
+  await t.test('Notiz bei „Als Nächstes“ und bei Extra', async () => {
+    await phone.click('.card [data-act=sheet][data-v=menu]');
+    await phone.fill('.sheet input[data-note="sheet"]', 'ohne Zucker');
+    await phone.click('.sheet [data-act=next][data-v="1"]');
+    await phone.locator('.card .onote', { hasText: 'ohne Zucker' }).waitFor();
+    await phone.click('#app [data-act=sheet][data-v=extra]');
+    await phone.fill('.sheet input[data-note="sheet"]', 'extra heiß');
+    await phone.click('.sheet [data-act=extra][data-v="0"]');
+    await laptop.locator('.tk', { hasText: 'Extra' }).locator('.tnote', { hasText: 'extra heiß' }).waitFor();
   });
 
   await t.test('Nächste Runde ist 10 Min vorher fest', async () => {
-    // Nächste vorgemerkte Runde ist 30 Min entfernt: 20 Min vorspulen, dann sind es 10 Min
-    assert.ok(await phone.locator('.card [data-act=sheet][data-v=menu]').isVisible());
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await laptop.click('[data-act=ff][data-v="5"]');
+    const card = phone.locator('.card [data-act=sheet][data-v=menu]');
+    for (let k = 0; k < 8 && await card.count(); k++) { await laptop.click('[data-act=ff][data-v="5"]'); await laptop.waitForTimeout(400); }
     await phone.locator('.card .qfix').waitFor();
-    await laptop.getByText('(fest)').first().waitFor();
+    await laptop.getByText('· fest').first().waitFor();
   });
 
   await t.test('Zweite Karte läuft parallel', async () => {

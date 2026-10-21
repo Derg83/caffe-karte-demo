@@ -81,20 +81,19 @@ const CKL = (() => {
   const ANSWER_WITHIN = 15 * 60000;   // ohne Antwort danach keine weitere Runde
   const isHeld = (t, at) => !!t.remindAt && at >= t.remindAt + ANSWER_WITHIN;
 
-  /* ---------- Vorausplanen: bis zu 5 Getränke mit Uhrzeit, unverbindlich ---------- */
-  // t.plan = [{ i: Getränk, at: Zeitpunkt }], aufsteigend. Ist ein Plan da, kommt die nächste Runde zum Plan-Zeitpunkt.
-  const PLAN_MAX = 5, LOCK_BEFORE = 10 * 60000, MIN_GAP = 5 * 60000, STEP = 5 * 60000;
+  /* ---------- Vorausplanen: bis zu 5 Getränke, unverbindlich; Zeiten ergeben sich aus dem Takt ---------- */
+  // t.plan = [{ i: Getränk, n: Notiz }] für die nächsten Runden; ist der Plan leer, kommt t.next (mit Notiz t.nn)
+  const PLAN_MAX = 5, LOCK_BEFORE = 10 * 60000;
+  const cleanNote = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 60);
   const nextItem = t => t.plan && t.plan.length ? t.plan[0].i : t.next;
+  const nextNote = t => t.plan && t.plan.length ? (t.plan[0].n || '') : (t.nn || '');
   // Die nächste Runde ist 10 Min vorher fest (das Café bereitet sie vor); bei Pause nicht
   const canChange = (t, at) => isHeld(t, at) || t.nextAt - at > LOCK_BEFORE;
   function planValid(t, p, at, okItem) {
     if (!Array.isArray(p) || p.length > PLAN_MAX) return false;
-    if (!p.every(x => x && okItem(x.i) && Number.isFinite(x.at))) return false;
-    for (let k = 1; k < p.length; k++) if (p[k].at - p[k - 1].at < MIN_GAP) return false;
-    if (!p.length) return true;
-    if (p[p.length - 1].at - at > 6 * 3600000) return false;
-    if (!canChange(t, at)) return p[0].i === nextItem(t) && p[0].at === t.nextAt;   // nächste Runde ist fest und bleibt
-    return p[0].at - at >= LOCK_BEFORE - 60000;                                   // 1 Min Puffer für die Übertragung
+    if (!p.every(x => x && okItem(x.i) && typeof (x.n || '') === 'string')) return false;
+    if (p.length && !canChange(t, at)) return p[0].i === nextItem(t) && cleanNote(p[0].n) === nextNote(t);   // nächste Runde ist fest und bleibt
+    return true;
   }
 
   /* ---------- Kompaktes Format für einen Ticker ---------- */
@@ -102,11 +101,11 @@ const CKL = (() => {
   // Runde als [Nr, Name, Preis, Sekunden seit Start, Status, extra]
   function pack(t) {
     const { orders, older, ...rest } = t;
-    return { ...rest, older: older || null, o: orders.map(o => [o.k, o.name, o.price, Math.round((o.at - t.start) / 1000), ST.indexOf(o.status), o.extra ? 1 : 0]) };
+    return { ...rest, older: older || null, o: orders.map(o => [o.k, o.name, o.price, Math.round((o.at - t.start) / 1000), ST.indexOf(o.status), o.extra ? 1 : 0, o.note || '']) };
   }
   function unpack(p) {
     const { o, ...rest } = p;
-    return { ...rest, orders: (o || []).map(([k, name, price, s, st, ex]) => ({ k, name, price, at: p.start + s * 1000, status: ST[st] || 'offen', extra: !!ex })) };
+    return { ...rest, orders: (o || []).map(([k, name, price, s, st, ex, note]) => ({ k, name, price, at: p.start + s * 1000, status: ST[st] || 'offen', extra: !!ex, note: note || '' })) };
   }
   // Passt die Nachricht nicht in 4 KB, werden die ältesten Runden zu einer Zeile zusammengefasst
   function fit(msg) {
@@ -149,7 +148,7 @@ const CKL = (() => {
     return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${esc(t.place)}</span><span class="mono">#${esc(t.no)}</span></div>
       ${t.older ? `<div class="bon-row"><time></time><span>${t.older.c} frühere ${t.older.c === 1 ? 'Runde' : 'Runden'}</span>${final ? '' : '<span class="st st-done">erledigt</span>'}<span class="p">${eur(t.older.s)}</span></div>` : ''}
       ${!t.orders.length && !t.older ? '<p class="note" style="padding:8px 0;border-top:1px dashed var(--line)">Noch nichts bestellt.</p>' : ''}
-    ${t.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
+    ${t.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}${o.note ? `<small class="onote">${esc(o.note)}</small>` : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
       <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total(t))}</span></div></div>`;
   }
   let actx = null;
@@ -160,5 +159,5 @@ const CKL = (() => {
       g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.35, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) { /* kein Ton */ }
   }
 
-  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, TAKTE, PLAN_MAX, LOCK_BEFORE, MIN_GAP, STEP, nextItem, canChange, planValid, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
+  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, TAKTE, PLAN_MAX, LOCK_BEFORE, cleanNote, nextItem, nextNote, canChange, planValid, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
 })();

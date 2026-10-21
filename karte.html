@@ -26,13 +26,13 @@ body{padding-left:0;padding-right:0;padding-block:0;background:var(--bg)}
 <div id="sheet"></div>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, isHeld, ANSWER_WITHIN, PLAN_MAX, LOCK_BEFORE, MIN_GAP, STEP, nextItem, canChange, planValid, cardTopic, unpack, LIMIT_TEXT, ICON, total, count, bon } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, publish, subscribe, isHeld, ANSWER_WITHIN, PLAN_MAX, LOCK_BEFORE, cleanNote, nextItem, nextNote, canChange, planValid, cardTopic, unpack, LIMIT_TEXT, ICON, total, count, bon } = CKL;
 const RC = 2 * Math.PI * 88;
 const topic = qs.get('k'), n = Math.round(+qs.get('n'));
 const app = document.getElementById('app');
 
 let S = null, offset = 0, sheetOpen = null, waitTimer = null;
-const ui = { table: null, takt: null, item: 0, ...store.get(`ck-live-ui-${topic}-${n}`), later: null, plan: null };   // die Frage „Schon bestellt?“ kommt jedes Mal neu
+const ui = { table: null, takt: null, item: 0, ...store.get(`ck-live-ui-${topic}-${n}`), later: null, plan: null, note: '' };   // die Frage „Schon bestellt?“ kommt jedes Mal neu
 const now = () => Date.now() + offset;
 const pending = new Map();   // cid -> { msg, tries, timer, btn }
 
@@ -114,10 +114,12 @@ function render() {
     const yes = `${tables}
       <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(ui.takt)}</div>
       <div><div class="lbl">Was soll dann kommen?</div>${menuList(ui.item, 'first')}</div>
+      ${noteField('start', ui.note)}
       ${startPlanBlock(C)}
       <p class="note">In ${ui.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${ui.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
     const no = `${tables}
       <div><div class="lbl">Dann bestell direkt hier</div>${menuList(ui.item, 'first')}</div>
+      ${noteField('start', ui.note)}
       ${startPlanBlock(C)}
       <div><div class="lbl">Danach automatisch alle</div>${taktBlock(ui.takt)}</div>
       <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${ui.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
@@ -168,49 +170,49 @@ function render() {
       <div class="ok-mark">${ICON.check}</div><div><h1 class="title">Bezahlt. Danke!</h1><p class="lead" style="margin-top:6px">${eur(total(t))}, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}. Gib die Karte bitte an der Theke ab.</p></div>${bon(t, C, true)}</div>
       <div class="dock"><button type="button" class="btn ghost${B}" data-act="clear">Neuen Ticker starten</button></div>`;
   }
-  const sc = window.scrollY; app.innerHTML = html; window.scrollTo(0, sc);
-  renderSheet(t); tick();
+  if (!typingIn('app')) { const sc = window.scrollY; app.innerHTML = html; window.scrollTo(0, sc); }
+  if (!typingIn('sheet')) renderSheet(t);
+  tick();
 }
-// „Als Nächstes“ wie gewohnt, darunter Vorausplanen (bis zu 5 Getränke mit Uhrzeit, unverbindlich)
+// Notizfeld, z. B. „ohne Milch“. Der Wert landet über das input-Ereignis in ui.note, sheetNote oder draft[k].n
+let sheetNote = '';
+const noteField = (key, val, small) => `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`;
+// „Als Nächstes“ wie gewohnt, darunter Vorausplanen (bis zu 5 Getränke, Zeiten im Takt, unverbindlich)
 let shownFixed = false;
 function nextBlock(t, C) {
-  const d = C.drinks[nextItem(t)] || C.drinks[0], ok = canChange(t, now()), plan = t.plan || [];
+  const d = C.drinks[nextItem(t)] || C.drinks[0], ok = canChange(t, now()), plan = t.plan || [], nn = nextNote(t);
   shownFixed = !ok;
-  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
+  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${nn ? `<small class="onote">${esc(nn)}</small>` : ''}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
   const planned = plan.length
-    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${plan.map(x => `<div class="pline"><span class="mono">${clock(x.at)}</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
+    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${plan.map((x, k) => `<div class="pline"><span class="mono">${clock(t.nextAt + k * t.takt * 60000)}</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
     : '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
   return card + planned;
 }
-// Planer: Entwurf im Handy, wird erst mit „Übernehmen“ an die Theke geschickt
-let draft = null, draftBase = 0;   // draftBase: Zeitpunkt, ab dem auf der Startseite gerechnet wird
+// Planer: Entwurf im Handy (Getränk und Notiz je Runde), wird erst mit „Übernehmen“ geschickt
+let draft = null;
 const planTakt = t => (t ? t.takt : ui.takt) * 60000;
+// Uhrzeit der geplanten Runde k: nach dem Start ab der nächsten Runde, vorher ab einem Takt nach jetzt
+const planAt = (t, k) => (t ? t.nextAt : now() + planTakt()) + k * planTakt(t);
 function openPlanner(t) {
-  if (t) {
-    draft = (t.plan || []).map(x => ({ ...x }));
-    if (!draft.length) { draft.push({ i: nextItem(t), at: t.nextAt }); while (draft.length < 3) draft.push({ i: draft[0].i, at: draft[draft.length - 1].at + planTakt(t) }); }
-  } else {
-    // Vor dem Start: erste geplante Runde einen Takt nach dem Start
-    draftBase = now();
-    draft = ui.plan ? ui.plan.map(x => ({ i: x.i, at: draftBase + x.off })) : [];
-    if (!draft.length) { draft.push({ i: ui.item, at: draftBase + planTakt() }); while (draft.length < 3) draft.push({ i: ui.item, at: draft[draft.length - 1].at + planTakt() }); }
-  }
+  const src = t ? (t.plan || []) : (ui.plan || []);
+  draft = src.map(x => ({ i: x.i, n: x.n || '' }));
+  if (!draft.length) { const first = t ? { i: nextItem(t), n: nextNote(t) } : { i: ui.item, n: ui.note }; while (draft.length < 3) draft.push({ ...first }); }
   sheetOpen = 'plan'; renderSheet(t);
 }
 function startPlanBlock(C) {
   if (!ui.plan) return '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
-  return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${ui.plan.map(x => `<div class="pline"><span class="mono">in ${Math.round(x.off / 60000)} Min</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
+  return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${ui.plan.map((x, k) => `<div class="pline"><span class="mono">in ${(k + 1) * ui.takt} Min</span><b>${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
 }
 function plannerHTML(t, C) {
   const fixed0 = !!t && !canChange(t, now());
   return `<h2>Du weißt schon, was es als Nächstes wird?</h2>
-    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus, mit Uhrzeit. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
+    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
     <div><div class="lbl">Wie viele im Voraus?</div><div class="chips" role="group" aria-label="Anzahl" style="grid-template-columns:repeat(${PLAN_MAX},1fr)">${Array.from({ length: PLAN_MAX }, (_, k) => k + 1).map(c => `<button type="button" class="chip" data-act="pcount" data-v="${c}" aria-pressed="${draft.length === c}">${c}</button>`).join('')}</div></div>
     <div class="plan">${draft.map((x, k) => k === 0 && fixed0
-      ? `<div class="prow fixed"><div class="ptime"><b class="mono">${clock(x.at)}</b></div><span class="pname">${esc((C.drinks[x.i] || C.drinks[0])[0])}</span><span class="qfix">fest</span></div>`
-      : `<div class="prow"><div class="ptime"><button type="button" class="mini" data-act="ptime" data-v="${k}:-1" aria-label="5 Min früher">−</button><b class="mono">${clock(x.at)}</b><button type="button" class="mini" data-act="ptime" data-v="${k}:1" aria-label="5 Min später">+</button></div>
-        <select data-pi="${k}" aria-label="Getränk ${k + 1}">${C.drinks.map((d, j) => `<option value="${j}"${j === x.i ? ' selected' : ''}>${esc(d[0])} · ${eur(d[1])}</option>`).join('')}</select></div>`).join('')}</div>
-    <p class="note">Verschiebst du eine Zeit, rücken die folgenden mit.</p>
+      ? `<div class="prow fixed"><span class="ptime mono">${clock(planAt(t, k))}</span><span class="pname">${esc((C.drinks[x.i] || C.drinks[0])[0])}${x.n ? ` <small class="onote">${esc(x.n)}</small>` : ''}</span><span class="qfix">fest</span></div>`
+      : `<div class="prow"><span class="ptime mono">${clock(planAt(t, k))}</span><div class="pfields">
+        <select data-pi="${k}" aria-label="Getränk ${k + 1}">${C.drinks.map((d, j) => `<option value="${j}"${j === x.i ? ' selected' : ''}>${esc(d[0])} · ${eur(d[1])}</option>`).join('')}</select>
+        ${noteField('p' + k, x.n, true)}</div></div>`).join('')}</div>
     <button type="button" class="btn primary" data-act="psave">Übernehmen</button>
     ${(t ? (t.plan || []).length : ui.plan) ? '<button type="button" class="btn ghost" data-act="pclear">Vormerkung löschen</button>' : ''}`;
 }
@@ -222,9 +224,9 @@ function renderSheet(t) {
     return;
   }
   if (!sheetOpen || !t || t.screen !== 'live') { el.innerHTML = ''; return; }
-  if (sheetOpen === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Änderbar bis ${clock(t.nextAt - LOCK_BEFORE)} Uhr.</p>${menuList(nextItem(t), 'next')}`;
+  if (sheetOpen === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Änderbar bis ${clock(t.nextAt - LOCK_BEFORE)} Uhr. Erst Notiz, dann Getränk antippen.</p>${noteField('sheet', sheetNote)}${menuList(nextItem(t), 'next')}`;
   if (sheetOpen === 'plan' && draft) body = plannerHTML(t, C);
-  if (sheetOpen === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extra')}`;
+  if (sheetOpen === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${noteField('sheet', sheetNote)}${menuList(null, 'extra')}`;
   if (sheetOpen === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
     <div class="facts"><span>Sitzdauer<b>${dur(now() - t.start)}</b></span><span>Getränke<b>${count(t)}</b></span><span>Summe<b>${eur(total(t))}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
     <div class="row2"><button type="button" class="btn ghost" data-act="close" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
@@ -245,6 +247,13 @@ function tick() {
 setInterval(tick, 500);
 
 document.addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.pi; if (k !== undefined && draft && draft[+k]) draft[+k].i = +e.target.value; });
+document.addEventListener('input', e => {
+  const key = e.target.dataset && e.target.dataset.note; if (key === undefined) return;
+  if (key === 'start') ui.note = e.target.value; else if (key === 'sheet') sheetNote = e.target.value;
+  else if (draft && draft[+key.slice(1)]) draft[+key.slice(1)].n = e.target.value;
+});
+// Während jemand eine Notiz tippt, nicht neu zeichnen (sonst springt der Cursor raus)
+const typingIn = id => { const a = document.activeElement; return !!(a && a.classList.contains('note-in') && document.getElementById(id).contains(a)); };
 
 /* ---------- Klicks ---------- */
 document.addEventListener('click', e => {
@@ -256,43 +265,34 @@ document.addEventListener('click', e => {
     case 'takt': { const t = S.tickets && S.tickets[n]; if (t && t.screen === 'live') return cmd('takt', { takt: +v }); ui.takt = +v; break; }
     case 'first': ui.item = +v; break;
     case 'later': ui.later = v === '1'; break;
-    case 'start': return cmd('start', { takt: ui.takt, item: ui.item, table: ui.table, later: ui.later, plan: ui.plan || [] });
-    case 'sheet': sheetOpen = v; return renderSheet(S.tickets[n]);
+    case 'start': return cmd('start', { takt: ui.takt, item: ui.item, note: cleanNote(ui.note), table: ui.table, later: ui.later, plan: (ui.plan || []).map(x => ({ i: x.i, n: cleanNote(x.n) })) });
+    case 'sheet': sheetOpen = v; sheetNote = v === 'menu' ? nextNote(S.tickets[n]) : ''; return renderSheet(S.tickets[n]);
     case 'close': sheetOpen = null; draft = null; return renderSheet(null);
     case 'next': {
       const t = S.tickets[n]; sheetOpen = null;
       if (!t || !canChange(t, now())) { renderSheet(t); return toast('Diese Runde ist schon fest und wird vorbereitet.'); }
-      return cmd('next', { item: +v });
+      return cmd('next', { item: +v, note: cleanNote(sheetNote) });
     }
     case 'planner': return openPlanner(S.tickets[n] && S.tickets[n].screen === 'live' ? S.tickets[n] : null);
     case 'pcount': {
       const t = S.tickets[n], c = +v;
-      while (draft.length < c) draft.push({ i: draft[draft.length - 1].i, at: draft[draft.length - 1].at + planTakt(t) });
+      while (draft.length < c) draft.push({ ...draft[draft.length - 1] });
       while (draft.length > c) draft.pop();
-      return renderSheet(t);
-    }
-    case 'ptime': {
-      // Zeit um 5 Min verschieben, alle folgenden rücken mit; nie vor den Vorgänger, die erste nicht in die letzten 10 Min
-      const t = S.tickets[n], [k, dir] = v.split(':').map(Number), d = dir * STEP, x = draft[k], to = x.at + d;
-      const min = k === 0 ? now() + LOCK_BEFORE : draft[k - 1].at + MIN_GAP, max = (k === 0 ? now() : draft[k - 1].at) + 120 * 60000;
-      if (to < min) return toast(k === 0 ? 'Früher geht nicht: Das Café braucht 10 Min Vorlauf.' : 'Früher geht nicht: Die Runde davor kommt erst um ' + clock(draft[k - 1].at) + ' Uhr.');
-      if (to > max) return toast('Später geht nicht.');
-      for (let j = k; j < draft.length; j++) draft[j].at += d;
       return renderSheet(t);
     }
     case 'psave': {
       const t = S.tickets[n];
-      if (!t) { ui.plan = draft.map(({ i, at }) => ({ i, off: at - draftBase })); sheetOpen = null; draft = null; break; }   // vor dem Start: mit dem Start senden
-      const p = draft.map(({ i, at }) => ({ i, at }));
+      const p = draft.map(({ i, n }) => ({ i, n: cleanNote(n) }));
+      if (!t) { ui.plan = p; sheetOpen = null; draft = null; break; }   // vor dem Start: mit dem Start senden
       if (!planValid(t, p, now(), i => i >= 0 && i < S.cfg.drinks.length)) { openPlanner(t); return toast('Die nächste Runde ist inzwischen fest. Bitte kurz prüfen.'); }
       sheetOpen = null; draft = null; toast('Vorgemerkt'); return cmd('plan', { plan: p });
     }
     case 'pclear': sheetOpen = null; draft = null; if (!S.tickets[n]) { ui.plan = null; break; } return cmd('plan', { plan: [] });
-    case 'extra': sheetOpen = null; return cmd('extra', { item: +v });
+    case 'extra': sheetOpen = null; return cmd('extra', { item: +v, note: cleanNote(sheetNote) });
     case 'stop': sheetOpen = null; return cmd('stop');
     case 'pay': return cmd('pay', { m: v });
     case 'paychange': return cmd('paychange');
-    case 'clear': ui.later = null; ui.plan = null; return cmd('clear');
+    case 'clear': ui.later = null; ui.plan = null; ui.note = ''; return cmd('clear');
     case 'stillhere': return cmd('stillhere');
     default: return;
   }

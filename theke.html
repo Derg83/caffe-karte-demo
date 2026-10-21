@@ -32,6 +32,7 @@ body{padding-block:16px 96px}
 .ffbar .in{max-width:1180px;margin:0 auto;display:flex;gap:8px 12px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .ffbar .row{display:flex;gap:6px;flex-wrap:wrap}
 .cnt{font:600 12px var(--f-mono);color:var(--muted)}
+.tnote{display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:var(--crema-soft);color:var(--crema);font-size:13px;font-weight:700}
 .steps-ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
 .nextstep{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--accent-soft);border-radius:var(--r);padding:12px 14px;font-size:14px}
 .chk{display:flex;flex-direction:column;gap:8px}
@@ -77,7 +78,7 @@ body{padding-block:16px 96px}
 <script src="vendor/qrcode.js"></script>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, isHeld, TAKTE, nextItem, canChange, planValid, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, isHeld, TAKTE, cleanNote, nextItem, nextNote, canChange, planValid, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
 const MIN = 60000;
 
 /* ---------- Fester Vorführ-Code: steckt im Link der Karten ---------- */
@@ -137,10 +138,10 @@ function setConn(on) {
   el.title = limitHit ? LIMIT_TEXT + ' Tipp: Laptop über den Handy-Hotspot verbinden.' : '';
 }
 
-function addOrder(t, i, extra, at) {
+function addOrder(t, i, extra, at, note) {
   const d = T.cfg.drinks[i] || T.cfg.drinks[0];
   t.k = (t.k || 0) + 1;
-  t.orders.push({ k: t.k, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
+  t.orders.push({ k: t.k, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra, note: cleanNote(note) });
   newIds.add(t.no + ':' + t.k); beep();
 }
 function stopTicket(t, reason) { t.plan = []; t.screen = 'pay'; t.stopAt = now(); t.reason = reason || null; t.pay = T.cfg.pay.length === 1 ? { m: T.cfg.pay[0], st: 'waiting' } : { m: null, st: 'choose' }; }
@@ -164,31 +165,34 @@ function onCmd(m) {
       const tisch = Math.round(+m.table);
       const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Tisch ${n}`;   // Karte liegt fest auf Tisch n
       const at = now();
-      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, plan: [], start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
-      // Vor dem Start vorgemerkt: Zeiten kommen als Abstand zum Start (off)
+      const note = cleanNote(m.note);
+      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, nn: note, plan: [], start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
+      // Vor dem Start vorgemerkt: die nächsten Runden mit Getränk und Notiz
       if (Array.isArray(m.plan) && m.plan.length) {
-        const p = m.plan.map(x => ({ i: Math.round(+(x && x.i)), at: at + Math.round(+(x && x.off)) }));
-        if (planValid(t, p, at, okItem)) { t.plan = p; t.nextAt = p[0].at; }
+        const p = m.plan.map(x => ({ i: Math.round(+(x && x.i)), n: cleanNote(x && x.n) }));
+        if (planValid(t, p, at, okItem)) t.plan = p;
       }
       // „Ich hab noch was“: keine Bestellung beim Start, erste Runde nach einem Takt
       if (m.later === true) toast(`${place} startet, erste Runde in ${m.takt} Min`);
-      else { addOrder(t, m.item, false, at); toast(`${place} startet: ${d[m.item][0]}`); }
+      else { addOrder(t, m.item, false, at, note); toast(`${place} startet: ${d[m.item][0]}${note ? ` (${note})` : ''}`); }
       break;
     }
     // „Als Nächstes“ ändern, nur bis 10 Min vorher
-    case 'next': if (t && t.screen === 'live' && okItem(m.item) && canChange(t, now())) { touch(t); if (t.plan && t.plan.length) t.plan[0].i = m.item; else t.next = m.item; } break;
-    // Vorausplanen: bis zu 5 Getränke mit Uhrzeit (leer = Vormerkung löschen)
+    case 'next': if (t && t.screen === 'live' && okItem(m.item) && canChange(t, now())) {
+      touch(t); const note = cleanNote(m.note);
+      if (t.plan && t.plan.length) t.plan[0] = { i: m.item, n: note }; else { t.next = m.item; t.nn = note; }
+    } break;
+    // Vorausplanen: bis zu 5 Getränke mit Notiz für die nächsten Runden (leer = Vormerkung löschen)
     case 'plan': {
       if (!t || t.screen !== 'live' || !planValid(t, m.plan, now(), okItem)) break;
       const fixedFirst = !canChange(t, now()) && t.plan && t.plan.length ? t.plan[0] : null;
-      t.plan = m.plan.length ? m.plan.map(x => ({ i: x.i, at: Math.round(x.at) })) : fixedFirst ? [fixedFirst] : [];
-      if (t.plan.length) t.nextAt = t.plan[0].at; else if (canChange(t, now())) t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN);
+      t.plan = m.plan.length ? m.plan.map(x => ({ i: x.i, n: cleanNote(x.n) })) : fixedFirst ? [fixedFirst] : [];
       touch(t);
       toast(`${t.place}: ${m.plan.length ? m.plan.length + ' Getränke vorgemerkt' : 'Vormerkung gelöscht'}`);
       break;
     }
-    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; if (!(t.plan && t.plan.length)) t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
-    case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); addOrder(t, m.item, true); toast(`${t.place}: extra ${d[m.item][0]}`); } break;
+    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
+    case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); addOrder(t, m.item, true, undefined, m.note); toast(`${t.place}: extra ${d[m.item][0]}${cleanNote(m.note) ? ` (${cleanNote(m.note)})` : ''}`); } break;
     case 'stillhere': if (t && t.screen === 'live') { touch(t); toast(`${t.place}: Gast ist noch da`); } break;
     case 'stop': if (t && t.screen === 'live') { stopTicket(t); beep(); } break;
     case 'pay': if (t && t.screen === 'pay' && T.cfg.pay.includes(m.m)) { t.pay = { m: m.m, st: 'waiting' }; beep(); toast(`${t.place} will zahlen`); } break;
@@ -212,7 +216,7 @@ function checkRemind(t, at) {
 function touch(t) {
   const n0 = now();
   if (isHeld(t, n0) && t.nextAt <= n0) {   // nach der Pause: Takt ab jetzt, Vormerkungen rücken mit
-    const d = n0 + t.takt * MIN - t.nextAt; t.lastAuto = n0; t.nextAt += d; (t.plan || []).forEach(x => { x.at += d; });
+    t.lastAuto = n0; t.nextAt = n0 + t.takt * MIN;
   }
   t.remindAt = 0; t.lastAct = n0;
 }
@@ -226,9 +230,10 @@ function advanceAll() {
       if (checkRemind(t, at)) ch = true;
       if (isHeld(t, at)) break;   // keine Antwort auf die Nachfrage: keine weitere Runde
       // Vorgemerkte Runde kommt zu ihrer Zeit, sonst das „Als Nächstes“-Getränk im Takt
-      const item = t.plan && t.plan.length ? t.plan.shift().i : t.next;
-      t.lastAuto = at; addOrder(t, item, false, at);
-      t.nextAt = t.plan && t.plan.length ? t.plan[0].at : at + t.takt * MIN; ch = true; rounds++;
+      // Vorgemerkte Runde zuerst, sonst das „Als Nächstes“-Getränk; Zeit immer im Takt
+      const pl = t.plan && t.plan.length ? t.plan.shift() : { i: t.next, n: t.nn };
+      t.lastAuto = at; addOrder(t, pl.i, false, at, pl.n);
+      t.nextAt = at + t.takt * MIN; ch = true; rounds++;
     }
     if (checkRemind(t, now())) ch = true;
     // Pause beginnt: Theke neu zeichnen (das Handy rechnet die Pause selbst aus)
@@ -268,13 +273,13 @@ function render() {
       ${list.some(x => x.t.screen === 'done') && !list.some(x => x.t.screen !== 'done') ? `<div class="nextstep"><span><b>Das war der ganze Ablauf.</b> Jetzt zeigen, was das dem Café im Monat bringt.</span><button type="button" class="btn sm primary" data-act="calc">Was bringt’s? →</button></div>` : ''}
       ${pay.length ? `<section><div class="lbl">Will zahlen (${pay.length})</div>${pay.map(({ n, t }) => `<div class="tk req">${badge(t.place)}<div><b>${eur(total(t))}</b><span class="meta">${t.pay.st === 'choose' ? 'Wählt gerade die Zahlart' : t.pay.m === 'kasse' ? `Kommt zur Kasse, Code #${esc(t.no)}` : t.pay.m === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected" data-n="${n}">Kassiert</button></div></div>`).join('')}</section>` : ''}
       <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
-        ${open.length ? open.map(({ n, t, o, round }) => `<div class="tk${newIds.has(t.no + ':' + o.k) ? ' new' : ''}">${badge(t.place)}<div><b>${esc(o.name)}</b><span class="meta">${round} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
+        ${open.length ? open.map(({ n, t, o, round }) => `<div class="tk${newIds.has(t.no + ':' + o.k) ? ' new' : ''}">${badge(t.place)}<div><b>${esc(o.name)}</b>${o.note ? `<span class="tnote">${esc(o.note)}</span>` : ''}<span class="meta">${round} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
           <div class="btns">${ab && o.status === 'offen' ? `<button type="button" class="btn sm ghost" data-act="ready" data-n="${n}" data-k="${o.k}">Fertig melden</button>` : `<button type="button" class="btn sm primary" data-act="served" data-n="${n}" data-k="${o.k}">${ab ? 'Abgeholt' : 'Gebracht'}</button>`}</div></div>`).join('') : '<p class="empty">Gerade nichts offen.</p>'}
         <p class="note">Jede Runde kommt wie ein Bestellbon. Im echten Betrieb wird sie wie jede normale Bestellung in die Kasse gebucht.</p>
       </section></div>
       <div>
         <section><div class="lbl">Laptop-Ticker (${list.filter(x => x.t.screen === 'live').length} aktiv)</div>
-          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? (() => { const dn = i => esc((T.cfg.drinks[i] || T.cfg.drinks[0])[0]), later = (t.plan || []).slice(1); return `Nächstes: ${dn(nextItem(t))}${canChange(t, now()) ? '' : ' (fest)'} in <span class="mono" data-cd="${t.nextAt}"></span>${later.length ? ` · vorgemerkt: ${later.map(x => `${clock(x.at)} ${dn(x.i)}`).join(', ')}` : ''}`; })() : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
+          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? (() => { const dn = i => esc((T.cfg.drinks[i] || T.cfg.drinks[0])[0]), later = (t.plan || []).slice(1); const nn = nextNote(t); return `Nächstes: ${dn(nextItem(t))}${nn ? ` (${esc(nn)})` : ''}${canChange(t, now()) ? '' : ' · fest'} in <span class="mono" data-cd="${t.nextAt}"></span>${later.length ? ` · danach vorgemerkt: ${later.map(x => dn(x.i) + (x.n ? ` (${esc(x.n)})` : '')).join(', ')}` : ''}`; })() : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
             <div class="facts"><span>Takt<b>alle ${t.takt} Min</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
             ${t.screen === 'live' ? `<div class="row2"><button type="button" class="btn sm ghost" data-act="stopT" data-n="${n}">Ticker beenden</button></div>` : ''}</div>`).join('') : '<p class="empty">Noch kein Ticker. Lass eine Karte scannen.</p>'}
         </section>

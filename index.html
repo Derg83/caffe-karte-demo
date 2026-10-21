@@ -110,12 +110,19 @@ button,input{font:inherit;color:inherit}
 .pline span{color:var(--muted);font-size:13px;align-self:center}
 .planbox .btn{align-self:flex-start;margin-top:4px}
 .plan{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
-.prow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;padding:10px 12px}
+.prow{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px;align-items:center;padding:10px 12px}
 .prow + .prow{border-top:1px solid var(--line)}
-.prow.fixed{background:var(--sunk);grid-template-columns:auto minmax(0,1fr) auto}
-.ptime{display:flex;align-items:center;gap:6px}
-.ptime b{min-width:46px;text-align:center;font-size:15px}
+.prow.fixed{background:var(--sunk);grid-template-columns:48px minmax(0,1fr) auto}
+.ptime{font-size:14px;color:var(--muted)}
+.pfields{display:flex;flex-direction:column;gap:6px;min-width:0}
 .prow select{width:100%;min-width:0;min-height:40px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:500 14px var(--f-body);padding:0 8px}
+.note-in{width:100%;min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:500 15px var(--f-body);padding:0 12px}
+.note-in.sm{min-height:38px;font-size:14px;border-radius:10px;background:var(--bg)}
+.note-in::placeholder{color:var(--muted)}
+.tnote{display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:var(--crema-soft);color:var(--crema);font-size:13px;font-weight:700}
+.onote{display:block;font-size:12px;font-weight:600;color:var(--crema);font-style:normal}
+.pline b .onote{display:inline;margin-left:4px}
+.bon-row .onote{margin-top:1px}
 .pname{font-weight:600}
 .qfix{font-size:12px;font-weight:600;color:var(--muted);padding:6px 10px;border-radius:999px;border:1px solid var(--line)}
 .menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
@@ -395,7 +402,7 @@ let skew = 0; const now = () => Date.now() + skew;
 // ?tab=rechner öffnet gleich den Rechner (Knopf „Was bringt’s?“ auf der Theke)
 const S = { tab: new URLSearchParams(location.search).get('tab') === 'rechner' ? 'calc' : 'demo', pane: 'gast' };
 function reset() {
-  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(30) ? 30 : C.takte[0], first: 0, next: 0, plan: [], prePlan: null, draft: null, draftBase: 0, later: null,
+  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(30) ? 30 : C.takte[0], first: 0, next: 0, nn: '', note: '', sheetNote: '', plan: [], prePlan: null, draft: null, later: null,
     start: null, nextAt: null, lastAuto: null, lastAct: null, remindAt: 0, held: false, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
 }
 reset();
@@ -410,9 +417,10 @@ function beep() {
   try { const t0 = actx.currentTime; [0, .18].forEach((d, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = i ? 1046 : 784; o.connect(g); g.connect(actx.destination);
     g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.3, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) {}
 }
-function addOrder(i, extra, at) {
+const cleanNote = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 60);
+function addOrder(i, extra, at, note) {
   const d = drink(i); S.n++;
-  S.orders.push({ n: S.n, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
+  S.orders.push({ n: S.n, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra, note: cleanNote(note) });
   S.newIds.add(S.n); beep();
 }
 // „Bist du noch da?“: nach 3 Stunden ohne Aktion des Gasts fragt das Handy nach.
@@ -425,40 +433,44 @@ function checkRemind(at) {
   toast('Gast-Handy fragt: Bist du noch da?');
   return true;
 }
-// „Als Nächstes“ wie gewohnt, darunter Vorausplanen: bis zu 5 Getränke mit Uhrzeit, unverbindlich
-const PLAN_MAX = 5, LOCK_BEFORE = 10 * MIN, MIN_GAP = 5 * MIN, STEP = 5 * MIN;
+// „Als Nächstes“ wie gewohnt, darunter Vorausplanen: bis zu 5 Getränke mit Notiz, im Takt, unverbindlich
+const PLAN_MAX = 5, LOCK_BEFORE = 10 * MIN;
 const nextItem = () => S.plan.length ? S.plan[0].i : S.next;
+const nextNote = () => S.plan.length ? (S.plan[0].n || '') : S.nn;
 const canChange = () => isHeld(now()) || S.nextAt - now() > LOCK_BEFORE;   // nächste Runde 10 Min vorher fest
+const noteField = (key, val, small) => `<input type="text" class="note-in${small ? ' sm' : ''}" data-note="${key}" maxlength="60" autocomplete="off" placeholder="Notiz, z. B. ohne Milch" aria-label="Notiz" value="${esc(val || '')}">`;
+const noteTag = n => n ? `<small class="onote">${esc(n)}</small>` : '';
 function nextBlock() {
   const d = drink(nextItem()), ok = canChange();
-  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
+  const card = `<div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes${ok ? '' : ' · fest'}</span><b>${esc(d[0])}</b>${noteTag(nextNote())}<span class="mono" style="font-size:13px;color:var(--muted)">${eur(d[1])}</span></div>${ok ? '<button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button>' : '<span class="qfix">fest</span>'}</div>`;
   const planned = S.plan.length
-    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.plan.map(x => `<div class="pline"><span class="mono">${clock(x.at)}</span><b>${esc(drink(x.i)[0])}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
+    ? `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.plan.map((x, k) => `<div class="pline"><span class="mono">${clock(S.nextAt + k * S.takt * MIN)}</span><b>${esc(drink(x.i)[0])} ${noteTag(x.n)}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`
     : '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
   return card + planned;
 }
-// Vor dem Start: Vormerkung als Abstand zum Start (off), wird beim Start in Uhrzeiten umgerechnet
 function startPlanBlock() {
   if (!S.prePlan) return '<button type="button" class="btn ghost planbtn" data-act="planner">Du weißt schon, was es als Nächstes wird?</button>';
-  return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.prePlan.map(x => `<div class="pline"><span class="mono">in ${Math.round(x.off / MIN)} Min</span><b>${esc(drink(x.i)[0])}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
+  return `<div class="planbox"><div class="lbl">Vorgemerkt</div>${S.prePlan.map((x, k) => `<div class="pline"><span class="mono">in ${(k + 1) * S.takt} Min</span><b>${esc(drink(x.i)[0])} ${noteTag(x.n)}</b></div>`).join('')}<button type="button" class="btn sm ghost" data-act="planner">Bearbeiten</button></div>`;
 }
+// Uhrzeit der geplanten Runde k: nach dem Start ab der nächsten Runde, vorher ab einem Takt nach jetzt
+const planAt = k => (S.screen === 'live' ? S.nextAt : now() + S.takt * MIN) + k * S.takt * MIN;
 function plannerHTML() {
   const D = S.draft, fixed0 = S.screen === 'live' && !canChange();
   return `<h2>Du weißt schon, was es als Nächstes wird?</h2>
-    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus, mit Uhrzeit. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
+    <p class="note">Plane bis zu ${PLAN_MAX} Getränke im Voraus. Sie kommen im gewohnten Takt. Unverbindlich: Gehst du vorher, verfällt der Rest. Du zahlst nur, was gekommen ist.</p>
     <div><div class="lbl">Wie viele im Voraus?</div><div class="chips" role="group" aria-label="Anzahl" style="grid-template-columns:repeat(${PLAN_MAX},1fr)">${Array.from({ length: PLAN_MAX }, (_, k) => k + 1).map(c => `<button type="button" class="chip" data-act="pcount" data-v="${c}" aria-pressed="${D.length === c}">${c}</button>`).join('')}</div></div>
     <div class="plan">${D.map((x, k) => k === 0 && fixed0
-      ? `<div class="prow fixed"><div class="ptime"><b class="mono">${clock(x.at)}</b></div><span class="pname">${esc(drink(x.i)[0])}</span><span class="qfix">fest</span></div>`
-      : `<div class="prow"><div class="ptime"><button type="button" class="mini" data-act="ptime" data-v="${k}:-1" aria-label="5 Min früher">−</button><b class="mono">${clock(x.at)}</b><button type="button" class="mini" data-act="ptime" data-v="${k}:1" aria-label="5 Min später">+</button></div>
-        <select data-pi="${k}" aria-label="Getränk ${k + 1}">${C.drinks.map((d, j) => `<option value="${j}"${j === x.i ? ' selected' : ''}>${esc(d[0])} · ${eur(d[1])}</option>`).join('')}</select></div>`).join('')}</div>
-    <p class="note">Verschiebst du eine Zeit, rücken die folgenden mit.</p>
+      ? `<div class="prow fixed"><span class="ptime mono">${clock(planAt(k))}</span><span class="pname">${esc(drink(x.i)[0])} ${noteTag(x.n)}</span><span class="qfix">fest</span></div>`
+      : `<div class="prow"><span class="ptime mono">${clock(planAt(k))}</span><div class="pfields">
+        <select data-pi="${k}" aria-label="Getränk ${k + 1}">${C.drinks.map((d, j) => `<option value="${j}"${j === x.i ? ' selected' : ''}>${esc(d[0])} · ${eur(d[1])}</option>`).join('')}</select>
+        ${noteField('p' + k, x.n, true)}</div></div>`).join('')}</div>
     <button type="button" class="btn primary" data-act="psave">Übernehmen</button>
     ${(S.screen === 'live' ? S.plan.length : S.prePlan) ? '<button type="button" class="btn ghost" data-act="pclear">Vormerkung löschen</button>' : ''}`;
 }
 function touch() {
   if (S.screen !== 'live') return;
   if (isHeld(now()) && S.nextAt <= now()) {   // nach der Pause: Takt ab jetzt, Vormerkungen rücken mit
-    const d = now() + S.takt * MIN - S.nextAt; S.lastAuto = now(); S.nextAt += d; S.plan.forEach(x => { x.at += d; });
+    S.lastAuto = now(); S.nextAt = now() + S.takt * MIN;
   }
   S.remindAt = 0; S.lastAct = now();
 }
@@ -469,8 +481,8 @@ function tick() {
       const at = S.nextAt;
       if (checkRemind(at)) ch = true;
       if (isHeld(at)) break;
-      const item = S.plan.length ? S.plan.shift().i : S.next;   // vorgemerkte Runde zu ihrer Zeit, sonst im Takt
-      S.lastAuto = at; addOrder(item, false, at); S.nextAt = S.plan.length ? S.plan[0].at : at + S.takt * MIN; ch = true; rounds++;
+      const pl = S.plan.length ? S.plan.shift() : { i: S.next, n: S.nn };   // vorgemerkte Runde zuerst, Zeit immer im Takt
+      S.lastAuto = at; addOrder(pl.i, false, at, pl.n); S.nextAt = at + S.takt * MIN; ch = true; rounds++;
     }
     if (checkRemind(now())) ch = true;
     if (isHeld(now()) !== S.held) { S.held = !S.held; ch = true; }
@@ -494,7 +506,7 @@ function bon(final) {
   const lbl = { offen: ab ? 'in Arbeit' : 'unterwegs', fertig: 'abholbereit', erledigt: ab ? 'abgeholt' : 'serviert' }, cls = { offen: 'st-open', fertig: 'st-ready', erledigt: 'st-done' };
   return `<div class="bon${final ? ' final' : ''}"><div class="bon-h"><span>Übersicht · ${place()}</span><span class="mono">#0427</span></div>
     ${!S.orders.length ? '<p class="note" style="padding:8px 0;border-top:1px dashed var(--line)">Noch nichts bestellt.</p>' : ''}
-    ${S.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
+    ${S.orders.map(o => `<div class="bon-row"><time>${clock(o.at)}</time><span>${esc(o.name)}${o.extra ? '<em>extra</em>' : ''}${noteTag(o.note)}</span>${final ? '' : `<span class="st ${cls[o.status]}">${lbl[o.status]}</span>`}<span class="p">${eur(o.price)}</span></div>`).join('')}
     <div class="bon-sum"><span>${final ? 'Summe' : 'Bisher'}</span><span class="mono">${eur(total())}</span></div></div>`;
 }
 function gastHTML() {
@@ -506,10 +518,12 @@ function gastHTML() {
     const yes = `${tables}
       <div><div class="lbl">Wann soll das nächste kommen?</div>${taktBlock(S.takt)}</div>
       <div><div class="lbl">Was soll dann kommen?</div>${menuList(S.first, 'first')}</div>
+      ${noteField('start', S.note)}
       ${startPlanBlock()}
       <p class="note">In ${S.takt} Min ${ab ? 'wird' : 'kommt'} dein ${item}${ab ? ' zubereitet' : ''}, danach alle ${S.takt} Min. Du zahlst am Ende nur, was gekommen ist.</p>`;
     const no = `${tables}
       <div><div class="lbl">Dann bestell direkt hier</div>${menuList(S.first, 'first')}</div>
+      ${noteField('start', S.note)}
       ${startPlanBlock()}
       <div><div class="lbl">Danach automatisch alle</div>${taktBlock(S.takt)}</div>
       <p class="note">Dein ${item} ${ab ? 'wird sofort zubereitet' : 'kommt sofort'}, danach alle ${S.takt} Min ein Getränk. Du zahlst am Ende nur, was gekommen ist.</p>`;
@@ -565,9 +579,9 @@ function gastSheet() {
   const el = document.getElementById('gastSheet');
   if (!S.sheet || (S.screen !== 'live' && !(S.sheet === 'plan' && S.draft))) { el.innerHTML = ''; return; }
   const ab = C.service === 'abholen'; let body = '';
-  if (S.sheet === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Änderbar bis ${clock(S.nextAt - LOCK_BEFORE)} Uhr.</p>${menuList(nextItem(), 'pick')}`;
+  if (S.sheet === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Änderbar bis ${clock(S.nextAt - LOCK_BEFORE)} Uhr.</p>${noteField('sheet', S.sheetNote)}${menuList(nextItem(), 'pick')}`;
   if (S.sheet === 'plan' && S.draft) body = plannerHTML();
-  if (S.sheet === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extraPick')}`;
+  if (S.sheet === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${noteField('sheet', S.sheetNote)}${menuList(null, 'extraPick')}`;
   if (S.sheet === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
     <div class="facts"><span>Sitzdauer<b>${dur(now() - S.start)}</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Summe<b>${eur(total())}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
     <div class="row2"><button type="button" class="btn ghost" data-act="closesheet" style="flex:1">Weiter sitzen</button><button type="button" class="btn stop" data-act="stop" style="flex:1">Stoppen</button></div>`;
@@ -584,14 +598,14 @@ function thekeHTML() {
   const req = S.screen === 'pay' && S.pay.state === 'waiting'
     ? `<section><div class="lbl">Will zahlen</div><div class="tk req">${badge}<div><b>${eur(total())}</b><span class="meta">${S.pay.method === 'kasse' ? 'Kommt zur Kasse, Code #0427' : S.pay.method === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected">Kassiert</button></div></div></section>` : '';
   const ticket = S.screen === 'checkin' ? '<p class="empty">Noch kein Ticker aktiv. Starte einen auf dem Gast-Handy.</p>'
-    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' && S.held ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : S.screen === 'live' && S.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : S.screen === 'live' ? `Nächstes: ${esc(drink(nextItem())[0])}${canChange() ? '' : ' (fest)'} in <span class="mono" data-cd></span>${S.plan.length > 1 ? ` · vorgemerkt: ${S.plan.slice(1).map(x => `${clock(x.at)} ${esc(drink(x.i)[0])}`).join(', ')}` : ''}` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
+    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' && S.held ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : S.screen === 'live' && S.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : S.screen === 'live' ? `Nächstes: ${esc(drink(nextItem())[0])}${nextNote() ? ` (${esc(nextNote())})` : ''}${canChange() ? '' : ' · fest'} in <span class="mono" data-cd></span>${S.plan.length > 1 ? ` · danach vorgemerkt: ${S.plan.slice(1).map(x => esc(drink(x.i)[0]) + (x.n ? ` (${esc(x.n)})` : '')).join(', ')}` : ''}` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
       <div class="facts"><span>Sitzt seit<b data-since></b></span><span>Takt<b>alle ${S.takt} Min</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Umsatz<b>${eur(total())}</b></span></div></div>`;
   const html = `<div class="scroll"><div class="scr">
     <div class="top"><div class="cafe">Theke<small>${esc(C.name)}</small></div><span class="pill mono" data-clock></span></div>
     <div class="th-cols"><div>
       ${req}
       <section><div class="lbl">${ab ? 'Zubereiten, dann abholen lassen' : 'Zu bringen'} (${open.length})</div>
-        ${open.length ? open.map(o => `<div class="tk${S.newIds.has(o.n) ? ' new' : ''}">${badge}<div><b>${esc(o.name)}</b><span class="meta">${o.extra ? 'Extra' : 'Runde ' + round[o.n]} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
+        ${open.length ? open.map(o => `<div class="tk${S.newIds.has(o.n) ? ' new' : ''}">${badge}<div><b>${esc(o.name)}</b>${o.note ? `<span class="tnote">${esc(o.note)}</span>` : ''}<span class="meta">${o.extra ? 'Extra' : 'Runde ' + round[o.n]} · ${o.status === 'fertig' ? 'wartet auf Abholung' : `<span data-ago="${o.at}"></span>`}</span></div>
           <div class="btns">${ab && o.status === 'offen' ? `<button type="button" class="btn sm ghost" data-act="ready" data-v="${o.n}">Fertig melden</button>` : `<button type="button" class="btn sm primary" data-act="served" data-v="${o.n}">${ab ? 'Abgeholt' : 'Gebracht'}</button>`}</div></div>`).join('') : '<p class="empty">Gerade nichts offen.</p>'}
         <p class="note">Jede Runde kommt wie ein Bestellbon. Ein Ton meldet neue Runden. In die Kasse wird gebucht wie bei jeder normalen Bestellung.</p>
       </section></div>
@@ -711,10 +725,12 @@ function render() {
   const bd = document.getElementById('badge'); bd.textContent = cnt; bd.hidden = !cnt;
   const g = document.getElementById('gast'), t = document.getElementById('theke');
   const gs = g.querySelector('.scroll')?.scrollTop || 0, ts = t.querySelector('.scroll')?.scrollTop || 0, gk = g.dataset.k;
-  g.innerHTML = gastHTML(); t.innerHTML = thekeHTML(); g.dataset.k = S.screen;
+  if (!typingIn('gast')) { g.innerHTML = gastHTML(); g.dataset.k = S.screen; }
+  t.innerHTML = thekeHTML();
   if (gk === S.screen && g.querySelector('.scroll')) g.querySelector('.scroll').scrollTop = gs;
   if (t.querySelector('.scroll')) t.querySelector('.scroll').scrollTop = ts;
-  gastSheet(); update();
+  if (!typingIn('gastSheet')) gastSheet();
+  update();
 }
 function update() {
   document.querySelectorAll('[data-clock]').forEach(el => el.textContent = clock(now()) + ' Uhr');
@@ -756,56 +772,40 @@ function act(a, v, el) {
     }
     case 'reset': reset(); break;
     case 'table': S.table = +v; break;
-    case 'takt': touch(); S.takt = +v; if (S.screen === 'live' && !S.plan.length) S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
+    case 'takt': touch(); S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
     case 'first': S.first = +v; S.next = +v; break;
     case 'later': S.later = v === '1'; break;
-    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.plan = (S.prePlan || []).map(x => ({ i: x.i, at: S.start + x.off })); S.prePlan = null; if (S.plan.length) S.nextAt = S.plan[0].at; S.screen = 'live';
-      if (S.later) toast(`Ticker läuft, erste Runde in ${S.takt} Min`); else { addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); }
+    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.nn = cleanNote(S.note); S.plan = S.prePlan || []; S.prePlan = null; S.screen = 'live';
+      if (S.later) toast(`Ticker läuft, erste Runde in ${S.takt} Min`); else { addOrder(S.first, false, undefined, S.nn); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); }
       break;
-    case 'sheet': S.sheet = v; gastSheet(); return;
+    case 'sheet': S.sheet = v; S.sheetNote = v === 'menu' ? nextNote() : ''; gastSheet(); return;
     case 'closesheet': S.sheet = null; S.draft = null; gastSheet(); return;
     case 'stillhere': touch(); S.held = false; toast('Weiter geht’s. Die Theke sieht: Gast ist noch da.'); break;
     case 'pick': {
       S.sheet = null;
       if (!canChange()) { toast('Diese Runde ist schon fest und wird vorbereitet.'); break; }
-      touch(); if (S.plan.length) S.plan[0].i = +v; else S.next = +v; break;
+      touch(); const nt = cleanNote(S.sheetNote); if (S.plan.length) S.plan[0] = { i: +v, n: nt }; else { S.next = +v; S.nn = nt; } break;
     }
     case 'planner': {
-      let D;
-      if (S.screen === 'live') {
-        D = S.plan.map(x => ({ ...x }));
-        if (!D.length) { D.push({ i: nextItem(), at: S.nextAt }); while (D.length < 3) D.push({ i: D[0].i, at: D[D.length - 1].at + S.takt * MIN }); }
-      } else {   // vor dem Start: erste geplante Runde einen Takt nach dem Start
-        S.draftBase = now();
-        D = S.prePlan ? S.prePlan.map(x => ({ i: x.i, at: S.draftBase + x.off })) : [];
-        if (!D.length) { D.push({ i: S.first, at: S.draftBase + S.takt * MIN }); while (D.length < 3) D.push({ i: S.first, at: D[D.length - 1].at + S.takt * MIN }); }
-      }
+      const src = S.screen === 'live' ? S.plan : (S.prePlan || []), D = src.map(x => ({ i: x.i, n: x.n || '' }));
+      if (!D.length) { const f = S.screen === 'live' ? { i: nextItem(), n: nextNote() } : { i: S.first, n: S.note }; while (D.length < 3) D.push({ ...f }); }
       S.draft = D; S.sheet = 'plan'; gastSheet(); return;
     }
     case 'pcount': {
       const D = S.draft, c = +v;
-      while (D.length < c) D.push({ i: D[D.length - 1].i, at: D[D.length - 1].at + S.takt * MIN });
+      while (D.length < c) D.push({ ...D[D.length - 1] });
       while (D.length > c) D.pop();
       gastSheet(); return;
     }
-    case 'ptime': {
-      // Zeit um 5 Min verschieben, alle folgenden rücken mit; nie vor den Vorgänger, die erste nicht in die letzten 10 Min
-      const D = S.draft, [k, dir] = v.split(':').map(Number), d = dir * STEP, to = D[k].at + d;
-      const min = k === 0 ? now() + LOCK_BEFORE : D[k - 1].at + MIN_GAP, max = (k === 0 ? now() : D[k - 1].at) + 120 * MIN;
-      if (to < min) { toast(k === 0 ? 'Früher geht nicht: Das Café braucht 10 Min Vorlauf.' : 'Früher geht nicht: Die Runde davor kommt erst um ' + clock(D[k - 1].at) + ' Uhr.'); return; }
-      if (to > max) { toast('Später geht nicht.'); return; }
-      for (let j = k; j < D.length; j++) D[j].at += d;
-      gastSheet(); return;
-    }
     case 'psave': {
-      const D = S.draft; S.sheet = null; S.draft = null;
-      if (S.screen !== 'live') { S.prePlan = D.map(({ i, at }) => ({ i, off: at - S.draftBase })); break; }
-      if (!canChange() && S.plan.length === 0 && (D[0].at !== S.nextAt || D[0].i !== S.next)) { toast('Die nächste Runde ist inzwischen fest.'); break; }
-      touch(); S.plan = D.map(({ i, at }) => ({ i, at })); S.nextAt = S.plan[0].at;
+      const D = S.draft.map(x => ({ i: x.i, n: cleanNote(x.n) })); S.sheet = null; S.draft = null;
+      if (S.screen !== 'live') { S.prePlan = D; break; }
+      if (!canChange() && (D[0].i !== nextItem() || D[0].n !== nextNote())) { toast('Die nächste Runde ist inzwischen fest.'); break; }
+      touch(); S.plan = D;
       toast(`${S.plan.length} ${S.plan.length === 1 ? 'Getränk' : 'Getränke'} vorgemerkt`); break;
     }
-    case 'pclear': S.sheet = null; S.draft = null; if (S.screen !== 'live') { S.prePlan = null; break; } S.plan = canChange() ? [] : S.plan.slice(0, 1); if (!S.plan.length) S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); toast('Vormerkung gelöscht'); break;
-    case 'extraPick': touch(); addOrder(+v, true); S.sheet = null; break;
+    case 'pclear': S.sheet = null; S.draft = null; if (S.screen !== 'live') { S.prePlan = null; break; } S.plan = canChange() ? [] : S.plan.slice(0, 1); toast('Vormerkung gelöscht'); break;
+    case 'extraPick': touch(); addOrder(+v, true, undefined, S.sheetNote); S.sheet = null; break;
     case 'stop': S.sheet = null; S.plan = []; S.stopAt = now(); S.screen = 'pay'; S.pay = C.pay.length === 1 ? { method: C.pay[0], state: 'waiting' } : { method: null, state: 'choose' }; break;
     case 'paymethod': S.pay = { method: v, state: 'waiting' }; break;
     case 'paychange': S.pay = { method: null, state: 'choose' }; break;
@@ -821,6 +821,13 @@ document.addEventListener('click', e => {
   act(b.dataset.act, b.dataset.v, b);
 });
 document.addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.pi; if (k !== undefined && S.draft && S.draft[+k]) S.draft[+k].i = +e.target.value; });
+document.addEventListener('input', e => {
+  const key = e.target.dataset && e.target.dataset.note; if (key === undefined) return;
+  if (key === 'start') S.note = e.target.value; else if (key === 'sheet') S.sheetNote = e.target.value;
+  else if (S.draft && S.draft[+key.slice(1)]) S.draft[+key.slice(1)].n = e.target.value;
+});
+// Während jemand eine Notiz tippt, das Gast-Handy nicht neu zeichnen (sonst springt der Cursor raus)
+const typingIn = id => { const a = document.activeElement, el = document.getElementById(id); return !!(a && el && a.classList.contains('note-in') && el.contains(a)); };
 document.addEventListener('input', e => {
   const k = e.target.dataset && e.target.dataset.k; if (!k) return;
   K[k] = +e.target.value; const o = document.getElementById('o-' + k); if (o) o.textContent = F[k](K[k]); calcOut();

@@ -95,12 +95,19 @@ button,input{font:inherit;color:inherit}
 .pline span{color:var(--muted);font-size:13px;align-self:center}
 .planbox .btn{align-self:flex-start;margin-top:4px}
 .plan{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
-.prow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;padding:10px 12px}
+.prow{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px;align-items:center;padding:10px 12px}
 .prow + .prow{border-top:1px solid var(--line)}
-.prow.fixed{background:var(--sunk);grid-template-columns:auto minmax(0,1fr) auto}
-.ptime{display:flex;align-items:center;gap:6px}
-.ptime b{min-width:46px;text-align:center;font-size:15px}
+.prow.fixed{background:var(--sunk);grid-template-columns:48px minmax(0,1fr) auto}
+.ptime{font-size:14px;color:var(--muted)}
+.pfields{display:flex;flex-direction:column;gap:6px;min-width:0}
 .prow select{width:100%;min-width:0;min-height:40px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:500 14px var(--f-body);padding:0 8px}
+.note-in{width:100%;min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:500 15px var(--f-body);padding:0 12px}
+.note-in.sm{min-height:38px;font-size:14px;border-radius:10px;background:var(--bg)}
+.note-in::placeholder{color:var(--muted)}
+.tnote{display:inline-block;margin:2px 0;padding:2px 8px;border-radius:6px;background:var(--crema-soft);color:var(--crema);font-size:13px;font-weight:700}
+.onote{display:block;font-size:12px;font-weight:600;color:var(--crema);font-style:normal}
+.pline b .onote{display:inline;margin-left:4px}
+.bon-row .onote{margin-top:1px}
 .pname{font-weight:600}
 .qfix{font-size:12px;font-weight:600;color:var(--muted);padding:6px 10px;border-radius:999px;border:1px solid var(--line)}
 .menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
