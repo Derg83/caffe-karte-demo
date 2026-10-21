@@ -103,6 +103,15 @@ button,input{font:inherit;color:inherit}
 .yn{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .yn .chip{font:700 22px var(--f-display);padding:16px 8px 14px}
 .yn .chip small{font:500 12px var(--f-body);margin-top:2px}
+.queue{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.qrow{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;min-height:56px}
+.qrow + .qrow{border-top:1px solid var(--line)}
+.qrow .qt{font-size:13px;color:var(--muted)}
+.qrow .qn{display:flex;flex-direction:column;min-width:0}
+.qrow .qn b{font-size:15px;overflow-wrap:anywhere}
+.qrow .qn small{font-size:12px;color:var(--muted)}
+.qrow.fixed{background:var(--sunk)}
+.qfix{font-size:12px;font-weight:600;color:var(--muted);padding:6px 10px;border-radius:999px;border:1px solid var(--line)}
 .menu{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);overflow:hidden}
 .item{display:grid;grid-template-columns:1fr auto 20px;align-items:center;gap:12px;padding:12px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
 .item:first-child{border-top:0}
@@ -309,7 +318,7 @@ section{display:flex;flex-direction:column;gap:8px;min-width:0}
         <div class="device phone" id="gastDev"><span class="dev-label">Gast</span><div id="gast" style="display:flex;flex-direction:column;flex:1;min-height:0"></div><div id="gastSheet"></div></div>
         <div class="device tablet" id="thekeDev"><span class="dev-label">Theke</span><div id="theke" style="display:flex;flex-direction:column;flex:1;min-height:0"></div></div>
       </div>
-      <div class="ff"><span>Zeit vorspulen, um die nächste Runde zu zeigen</span><div class="row"><button type="button" class="mini" data-act="ff" data-v="15">+15 Min</button><button type="button" class="mini" data-act="ff" data-v="60">+1 Std</button><button type="button" class="mini" data-act="reset">Von vorn</button></div></div>
+      <div class="ff"><span>Zeit vorspulen, um die nächste Runde zu zeigen</span><div class="row"><button type="button" class="mini" data-act="ff" data-v="5">+5 Min</button><button type="button" class="mini" data-act="ff" data-v="15">+15 Min</button><button type="button" class="mini" data-act="ff" data-v="60">+1 Std</button><button type="button" class="mini" data-act="reset">Von vorn</button></div></div>
     </div>
   </main>
 
@@ -323,7 +332,7 @@ section{display:flex;flex-direction:column;gap:8px;min-width:0}
 const DEFAULT = {
   name: 'Dein Café', ort: '',
   drinks: [['Espresso', 280], ['Cappuccino', 380], ['Flat White', 420], ['Latte Macchiato', 420], ['Chai Latte', 450], ['Frischer Minztee', 380], ['Wasser 0,5 l', 300]],
-  service: 'bringen', place: 'karte', tables: 12, pay: ['bar', 'karte'], takte: [30, 45, 60, 90]
+  service: 'bringen', place: 'karte', tables: 12, pay: ['bar', 'karte'], takte: [15, 30, 40]
 };
 const PAY = {
   bar: { short: 'bar am Platz', title: 'Bar am Platz', sub: 'Die Bedienung kommt zu dir.', icon: 'cash' },
@@ -362,7 +371,9 @@ function clean(c) {
   if (!d.drinks.length) d.drinks = DEFAULT.drinks;
   d.service = d.service === 'abholen' ? 'abholen' : 'bringen'; d.place = d.place === 'tisch' ? 'tisch' : 'karte';
   d.pay = (Array.isArray(d.pay) ? d.pay : []).filter(p => PAY[p]); if (!d.pay.length) d.pay = ['bar', 'karte'];
-  d.takte = (Array.isArray(d.takte) ? d.takte : []).map(Number).filter(t => [30, 45, 60, 90].includes(t)).sort((a, b) => a - b); if (!d.takte.length) d.takte = [60];
+  // Nur 15, 30 oder 40 Min. Ältere Einstellungen mit anderen Takten bekommen die neuen Standard-Takte.
+  const tk = [...new Set((Array.isArray(d.takte) ? d.takte : []).map(Number))].sort((a, b) => a - b);
+  d.takte = tk.length && tk.every(t => [15, 30, 40].includes(t)) ? tk : DEFAULT.takte.slice();
   return d;
 }
 function loadCfg() {
@@ -378,7 +389,7 @@ let skew = 0; const now = () => Date.now() + skew;
 // ?tab=rechner öffnet gleich den Rechner (Knopf „Was bringt’s?“ auf der Theke)
 const S = { tab: new URLSearchParams(location.search).get('tab') === 'rechner' ? 'calc' : 'demo', pane: 'gast' };
 function reset() {
-  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(60) ? 60 : C.takte[Math.min(1, C.takte.length - 1)], first: 0, next: 0, later: null,
+  Object.assign(S, { screen: 'checkin', table: null, card: 7, takt: C.takte.includes(30) ? 30 : C.takte[0], first: 0, next: 0, q: [0, 0, 0], later: null,
     start: null, nextAt: null, lastAuto: null, lastAct: null, remindAt: 0, held: false, orders: [], n: 0, stopAt: null, pay: null, paid: null, sheet: null, newIds: new Set() });
 }
 reset();
@@ -408,6 +419,16 @@ function checkRemind(at) {
   toast('Gast-Handy fragt: Bist du noch da?');
   return true;
 }
+// Die nächsten 3 Runden: vorwählbar, bis 10 Min vorher änderbar (bei Pause immer)
+const LOCK_BEFORE = 10 * MIN;
+const slotAt = i => S.nextAt + i * S.takt * MIN;
+const canChange = i => isHeld(now()) || slotAt(i) - now() > LOCK_BEFORE;
+function queueBlock() {
+  return `<div><div class="lbl">Deine nächsten 3</div><div class="queue">${S.q.map((it, i) => {
+    const d = drink(it), ok = canChange(i);
+    return `<div class="qrow${ok ? '' : ' fixed'}"><span class="qt mono">${S.held ? '–' : clock(slotAt(i))}</span><span class="qn"><b>${esc(d[0])}</b><small class="mono">${eur(d[1])}</small></span>${ok ? `<button type="button" class="btn sm ghost" data-act="sheet" data-v="slot${i}">Ändern</button>` : '<span class="qfix">fest</span>'}</div>`;
+  }).join('')}</div><p class="note">Du kannst jede Runde bis 10 Min vorher ändern.</p></div>`;
+}
 function touch() {
   if (S.screen !== 'live') return;
   if (isHeld(now()) && S.nextAt <= now()) { S.lastAuto = now(); S.nextAt = now() + S.takt * MIN; }
@@ -420,11 +441,14 @@ function tick() {
       const at = S.nextAt;
       if (checkRemind(at)) ch = true;
       if (isHeld(at)) break;
-      S.lastAuto = at; addOrder(S.next, false, at); S.nextAt = at + S.takt * MIN; ch = true; rounds++;
+      const item = S.q.shift(); S.q.push(S.q[S.q.length - 1]); S.next = S.q[0];   // Runde nimmt den ersten Platz, hinten rückt nach
+      S.lastAuto = at; addOrder(item, false, at); S.nextAt = at + S.takt * MIN; ch = true; rounds++;
     }
     if (checkRemind(now())) ch = true;
     if (isHeld(now()) !== S.held) { S.held = !S.held; ch = true; }
-    if (ch) { render(); if (rounds) toast(`Neue Runde: ${drink(S.next)[0]} für ${place()}`); }
+    const locks = S.q.map((_, i) => canChange(i) ? 1 : 0).join('');   // eine Runde ist jetzt fest
+    if (locks !== S.locks) { S.locks = locks; ch = true; }
+    if (ch) { render(); if (rounds) toast(`Neue Runde: ${S.orders[S.orders.length - 1].name} für ${place()}`); }
   }
   update();
 }
@@ -435,7 +459,7 @@ function topBar(right) { return `<div class="top"><div class="cafe">${esc(C.name
 function menuList(sel, act) { return `<div class="menu">${C.drinks.map((d, i) => `<button type="button" class="item" data-act="${act}" data-v="${i}" aria-pressed="${sel === i}"><b>${esc(d[0])}</b><span class="pr">${eur(d[1])}</span><span class="radio"></span></button>`).join('')}</div>`; }
 function taktBlock(cur) {
   if (C.takte.length === 1) return `<div class="card" style="justify-content:space-between"><span>Vom Café festgelegt</span><b class="mono">${C.takte[0]} Min</b></div>`;
-  return `<div class="chips" role="group" aria-label="Takt">${C.takte.map(t => `<button type="button" class="chip" data-act="takt" data-v="${t}" aria-pressed="${cur === t}">${t}<small>Min</small></button>`).join('')}</div>`;
+  return `<div class="chips" role="group" aria-label="Takt" style="grid-template-columns:repeat(${Math.min(C.takte.length, 4)},1fr)">${C.takte.map(t => `<button type="button" class="chip" data-act="takt" data-v="${t}" aria-pressed="${cur === t}">${t}<small>Min</small></button>`).join('')}</div>`;
 }
 function bon(final) {
   const ab = C.service === 'abholen';
@@ -470,7 +494,7 @@ function gastHTML() {
     ${L === null ? '' : `<div class="dock"><button type="button" class="btn primary" data-act="start" ${can ? '' : 'disabled'}>${label}</button></div>`}`;
   }
   if (S.screen === 'live') {
-    const n = drink(S.next), open = openOrders(), ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
+    const open = openOrders(), ready = open.filter(o => o.status === 'fertig'), cooking = open.filter(o => o.status === 'offen');
     let st = '';
     if (ready.length) st += `<div class="state ready">${ICON.check}<span><b>Fertig!</b> Hol dein ${esc(ready.map(o => o.name).join(', '))} an der Theke ab.</span></div>`;
     if (cooking.length) st += `<div class="state">${ICON.tray}<span><b>${ab ? 'Wird zubereitet:' : 'Unterwegs zu dir:'}</b> ${esc(cooking.map(o => o.name).join(', '))}</span></div>`;
@@ -484,7 +508,7 @@ function gastHTML() {
         <div class="c">${held ? '<span class="cd-l">Nächstes Getränk</span><span class="cd paused">pausiert</span><span class="cd-at">Tippe oben auf „Ja, weiter“</span>'
           : '<span class="cd-l">Nächstes Getränk in</span><span class="cd" data-cd></span><span class="cd-at">um <span data-nextclock></span> Uhr</span>'}</div></div>
       ${st}
-      <div class="card"><div class="ic">${ICON.cup}</div><div class="grow"><span class="t">Als Nächstes</span><b>${esc(n[0])}</b><span class="mono" style="font-size:13px;color:var(--muted)">${eur(n[1])}</span></div><button type="button" class="btn sm ghost" data-act="sheet" data-v="menu">Ändern</button></div>
+      ${queueBlock()}
       ${C.takte.length > 1 ? `<div><div class="lbl">Takt</div>${taktBlock(S.takt)}</div>` : ''}
       ${bon(false)}
       <button type="button" class="link" data-act="sheet" data-v="extra">+ Zusätzlich etwas bestellen</button>
@@ -511,7 +535,7 @@ function gastSheet() {
   const el = document.getElementById('gastSheet');
   if (!S.sheet || S.screen !== 'live') { el.innerHTML = ''; return; }
   const ab = C.service === 'abholen'; let body = '';
-  if (S.sheet === 'menu') body = `<h2>Nächstes Getränk</h2><p class="note">Gilt ab der nächsten Runde.</p>${menuList(S.next, 'pick')}`;
+  if (/^slot\d$/.test(S.sheet || '')) { const i = +S.sheet.slice(4); body = `<h2>Runde um ${clock(slotAt(i))} Uhr</h2><p class="note">Änderbar bis ${clock(slotAt(i) - LOCK_BEFORE)} Uhr.</p>${menuList(S.q[i], 'pick')}`; }
   if (S.sheet === 'extra') body = `<h2>Zusätzlich bestellen</h2><p class="note">${ab ? 'Wird sofort zubereitet' : 'Kommt sofort'} und ändert deinen Takt nicht.</p>${menuList(null, 'extraPick')}`;
   if (S.sheet === 'confirm') body = `<h2>Ticker jetzt stoppen?</h2>
     <div class="facts"><span>Sitzdauer<b>${dur(now() - S.start)}</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Summe<b>${eur(total())}</b></span><span>Nächste Runde<b>entfällt</b></span></div>
@@ -529,7 +553,7 @@ function thekeHTML() {
   const req = S.screen === 'pay' && S.pay.state === 'waiting'
     ? `<section><div class="lbl">Will zahlen</div><div class="tk req">${badge}<div><b>${eur(total())}</b><span class="meta">${S.pay.method === 'kasse' ? 'Kommt zur Kasse, Code #0427' : S.pay.method === 'bar' ? 'Bar kassieren am Platz' : 'Kartenterminal mitnehmen'}</span></div><div class="btns"><button type="button" class="btn sm stop" data-act="collected">Kassiert</button></div></div></section>` : '';
   const ticket = S.screen === 'checkin' ? '<p class="empty">Noch kein Ticker aktiv. Starte einen auf dem Gast-Handy.</p>'
-    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' && S.held ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : S.screen === 'live' && S.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : S.screen === 'live' ? `Nächstes: ${esc(drink(S.next)[0])} in <span class="mono" data-cd></span>` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
+    : `<div class="tcard"><div class="hd">${badge}<div class="grow"><b>Ticker #0427</b><span class="meta" style="font-size:13px;color:var(--muted)">${S.screen === 'live' && S.held ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : S.screen === 'live' && S.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : S.screen === 'live' ? `Nächstes: ${esc(drink(S.q[0])[0])}${canChange(0) ? '' : ' (fest)'} in <span class="mono" data-cd></span> · danach ${esc(drink(S.q[1])[0])}, ${esc(drink(S.q[2])[0])}` : S.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[S.paid.method].short}`}</span></div></div>
       <div class="facts"><span>Sitzt seit<b data-since></b></span><span>Takt<b>alle ${S.takt} Min</b></span><span>Getränke<b>${S.orders.length}</b></span><span>Umsatz<b>${eur(total())}</b></span></div></div>`;
   const html = `<div class="scroll"><div class="scr">
     <div class="top"><div class="cafe">Theke<small>${esc(C.name)}</small></div><span class="pill mono" data-clock></span></div>
@@ -549,7 +573,7 @@ function thekeHTML() {
 }
 
 /* ---------- Umsatz-Rechner ---------- */
-const K = { guests: 0, hours: 3, today: 1.5, price: 0, takt: 60, days: 26, share: 50 };
+const K = { guests: 0, hours: 3, today: 1.5, price: 0, takt: 30, days: 26, share: 50 };
 function avgPrice() { return Math.round(C.drinks.reduce((a, d) => a + d[1], 0) / C.drinks.length / 10) * 10; }
 function calc() {
   const price = K.price || avgPrice();
@@ -583,7 +607,7 @@ function calcHTML() {
       ${rng('guests', 'Wie viele Laptop-Gäste habt ihr am Tag?', K.guests, 1, 40, 1, F.guests)}
       ${rng('hours', 'Wie lange sitzen sie ungefähr?', K.hours, 1, 6, .5, F.hours)}
       ${rng('price', 'Durchschnittspreis pro Getränk', K.price, 200, 700, 10, F.price, 'Aus eurer Getränkeliste')}
-      ${rng('takt', 'Takt mit Ticker', K.takt, 30, 90, 15, F.takt)}
+      ${rng('takt', 'Takt mit Ticker', K.takt, 15, 60, 5, F.takt)}
       ${rng('share', 'So viele Laptop-Gäste machen mit', K.share, 10, 100, 10, F.share)}
       ${rng('days', 'Öffnungstage im Monat', K.days, 10, 31, 1, F.days)}
       ${rng('today', 'Das bestellen sie heute pro Besuch', K.today, 1, 4, .5, F.today)}
@@ -627,7 +651,7 @@ function setupSheet() {
     <div class="fld"><span class="l">Service</span><div class="checks"><label><input type="radio" name="s-service" value="bringen" ${C.service === 'bringen' ? 'checked' : ''}>Bedienung bringt</label><label><input type="radio" name="s-service" value="abholen" ${C.service === 'abholen' ? 'checked' : ''}>Gast holt ab</label></div></div>
     <div class="fld"><span class="l">Platz</span><div class="checks"><label><input type="radio" name="s-place" value="karte" ${C.place === 'karte' ? 'checked' : ''}>Karte liegt fest auf dem Tisch</label><label><input type="radio" name="s-place" value="tisch" ${C.place === 'tisch' ? 'checked' : ''}>Gast bekommt Karte, wählt Tisch</label></div></div>
     <div class="fld"><span class="l">Zahlarten</span><div class="checks">${Object.keys(PAY).map(p => `<label><input type="checkbox" name="s-pay" value="${p}" ${C.pay.includes(p) ? 'checked' : ''}>${PAY[p].title}</label>`).join('')}</div></div>
-    <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[30, 45, 60, 90].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
+    <div class="fld"><span class="l">Takte zur Auswahl</span><div class="checks">${[15, 30, 40].map(t => `<label><input type="checkbox" name="s-takt" value="${t}" ${C.takte.includes(t) ? 'checked' : ''}>${t} Min</label>`).join('')}</div></div>
     <div class="row2"><button type="button" class="btn primary" data-act="saveSetup" style="flex:1">Übernehmen</button>${inFrame ? '' : '<button type="button" class="btn ghost" data-act="copyLink" style="flex:1">Link für dieses Café kopieren</button>'}</div>
     <textarea id="linkOut" hidden readonly style="width:100%;min-height:70px;font:12px var(--f-mono);padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--surface)"></textarea>
     <button type="button" class="link" data-act="defaults">Auf Standard zurücksetzen</button>
@@ -702,15 +726,19 @@ function act(a, v, el) {
     case 'reset': reset(); break;
     case 'table': S.table = +v; break;
     case 'takt': touch(); S.takt = +v; if (S.screen === 'live') S.nextAt = Math.max(now(), S.lastAuto + S.takt * MIN); break;
-    case 'first': S.first = +v; S.next = +v; break;
+    case 'first': S.first = +v; S.next = +v; S.q = [+v, +v, +v]; break;
     case 'later': S.later = v === '1'; break;
-    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.screen = 'live';
+    case 'start': S.start = now(); S.lastAuto = S.start; S.lastAct = S.start; S.nextAt = S.start + S.takt * MIN; S.next = S.first; S.q = [S.first, S.first, S.first]; S.screen = 'live';
       if (S.later) toast(`Ticker läuft, erste Runde in ${S.takt} Min`); else { addOrder(S.first, false); toast(`Bestellung an die Theke: ${drink(S.first)[0]}`); }
       break;
     case 'sheet': S.sheet = v; gastSheet(); return;
     case 'closesheet': S.sheet = null; gastSheet(); return;
     case 'stillhere': touch(); S.held = false; toast('Weiter geht’s. Die Theke sieht: Gast ist noch da.'); break;
-    case 'pick': touch(); S.next = +v; S.sheet = null; toast('Gilt ab der nächsten Runde'); break;
+    case 'pick': {
+      const i = +String(S.sheet).slice(4); S.sheet = null;
+      if (!canChange(i)) { toast('Diese Runde ist schon fest und wird vorbereitet.'); break; }
+      touch(); S.q[i] = +v; S.next = S.q[0]; break;
+    }
     case 'extraPick': touch(); addOrder(+v, true); S.sheet = null; break;
     case 'stop': S.sheet = null; S.stopAt = now(); S.screen = 'pay'; S.pay = C.pay.length === 1 ? { method: C.pay[0], state: 'waiting' } : { method: null, state: 'choose' }; break;
     case 'paymethod': S.pay = { method: v, state: 'waiting' }; break;

@@ -74,6 +74,24 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   });
 
   const phone2 = await open(PHONE, 'Handy 2', card1.replace('n=1', 'n=2'));
+  await t.test('Nächste 3 Runden vorwählen, 10 Min vorher wird die Runde fest', async () => {
+    // Tisch 1 läuft im 30-Minuten-Takt mit Flat White
+    assert.strictEqual(await phone.locator('.qrow').count(), 3);
+    await phone.click('[data-act=sheet][data-v=slot2]');
+    await phone.click('.sheet [data-act=slot][data-v="0"]');           // Runde 3: Cappuccino
+    await phone.locator('.qrow').nth(2).getByText('Cappuccino').waitFor();
+    await laptop.getByText('danach Flat White, Cappuccino').waitFor();
+    // 20 Min vorspulen: Runde 1 ist dann nur noch 10 Min entfernt und fest
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await laptop.click('[data-act=ff][data-v="5"]');
+    await phone.locator('.qrow.fixed').first().waitFor();
+    await laptop.getByText('(fest)').first().waitFor();
+    // Wenn die Runde kommt, rückt alles nach
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await phone.locator('.qrow').nth(1).getByText('Cappuccino').waitFor();
+    await phone.locator('.qrow').nth(2).getByText('Cappuccino').waitFor();
+  });
+
   await t.test('Zweite Karte läuft parallel', async () => {
     await phone2.locator('[data-act=later]').first().waitFor();
     await phone2.click('[data-act=later][data-v="0"]');
@@ -134,12 +152,12 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await p4.locator('[data-act=later]').first().waitFor();
     await p4.click('[data-act=later][data-v="1"]');          // Ja, schon bestellt
     await p4.getByText('Wann soll das nächste kommen?').waitFor();
-    await p4.click('[data-act=takt][data-v="60"]');
-    assert.strictEqual(await p4.locator('[data-act=start]').textContent(), 'Ticker starten · nächstes in 60 Min');
+    await p4.click('[data-act=takt][data-v="40"]');
+    assert.strictEqual(await p4.locator('[data-act=start]').textContent(), 'Ticker starten · nächstes in 40 Min');
     await p4.click('[data-act=start]');
     await p4.locator('.pill.live').waitFor();
     assert.strictEqual(await p4.locator('.bon-row').count(), 0);
-    await laptop.getByText('Tisch 4 startet, erste Runde in 60 Min').waitFor();
+    await laptop.getByText('Tisch 4 startet, erste Runde in 40 Min').waitFor();
     await laptop.locator('.tcard', { hasText: 'Tisch' }).filter({ hasText: '4' }).first().waitFor();
     await laptop.click('[data-act=ff][data-v="60"]');
     await p4.waitForFunction(() => document.querySelectorAll('.bon-row').length === 1);

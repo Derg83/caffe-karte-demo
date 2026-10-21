@@ -29,10 +29,11 @@ const CKL = (() => {
   };
 
   /* ---------- Café-Einstellungen ---------- */
+  const TAKTE = [15, 30, 40];
   const DEFAULT = {
     name: 'Dein Café', ort: '',
     drinks: [['Espresso', 280], ['Cappuccino', 380], ['Flat White', 420], ['Latte Macchiato', 420], ['Chai Latte', 450], ['Frischer Minztee', 380], ['Wasser 0,5 l', 300]],
-    service: 'bringen', place: 'karte', tables: 12, pay: ['bar', 'karte'], takte: [30, 45, 60, 90]
+    service: 'bringen', place: 'karte', tables: 12, pay: ['bar', 'karte'], takte: [15, 30, 40]
   };
   const PAY = {
     bar: { short: 'bar am Platz', title: 'Bar am Platz', sub: 'Die Bedienung kommt zu dir.', icon: 'cash' },
@@ -48,7 +49,9 @@ const CKL = (() => {
     d.service = d.service === 'abholen' ? 'abholen' : 'bringen'; d.place = d.place === 'tisch' ? 'tisch' : 'karte';
     d.tables = Math.min(60, Math.max(1, Math.round(+d.tables) || 12));
     d.pay = (Array.isArray(d.pay) ? d.pay : []).filter(p => PAY[p]); if (!d.pay.length) d.pay = ['bar', 'karte'];
-    d.takte = (Array.isArray(d.takte) ? d.takte : []).map(Number).filter(t => [30, 45, 60, 90].includes(t)).sort((a, b) => a - b); if (!d.takte.length) d.takte = [60];
+    // Nur 15, 30 oder 40 Min. Ältere Einstellungen mit anderen Takten bekommen die neuen Standard-Takte.
+    const tk = [...new Set((Array.isArray(d.takte) ? d.takte : []).map(Number))].sort((a, b) => a - b);
+    d.takte = tk.length && tk.every(t => TAKTE.includes(t)) ? tk : DEFAULT.takte.slice();
     return d;
   }
   // Gleiches Format wie die Vorführ-Seite (?d=...), damit fertige Café-Links weiter funktionieren
@@ -77,6 +80,13 @@ const CKL = (() => {
   const REMIND_AFTER = 3 * 3600000;   // nach 3 Stunden ohne Aktion des Gasts
   const ANSWER_WITHIN = 15 * 60000;   // ohne Antwort danach keine weitere Runde
   const isHeld = (t, at) => !!t.remindAt && at >= t.remindAt + ANSWER_WITHIN;
+
+  /* ---------- Die nächsten 3 Runden: vorwählbar, bis 10 Min vorher änderbar ---------- */
+  const QUEUE = 3, LOCK_BEFORE = 10 * 60000;
+  const slotAt = (t, i) => t.nextAt + i * t.takt * 60000;
+  const queueOf = t => { const q = Array.isArray(t.q) ? t.q.slice(0, QUEUE) : []; while (q.length < QUEUE) q.push(q.length ? q[q.length - 1] : (t.next || 0)); return q; };
+  // Ändern geht, solange die Runde mehr als 10 Min entfernt ist (bei Pause immer)
+  const canChange = (t, i, at) => isHeld(t, at) || slotAt(t, i) - at > LOCK_BEFORE;
 
   /* ---------- Kompaktes Format für einen Ticker ---------- */
   const ST = ['offen', 'fertig', 'erledigt'];
@@ -141,5 +151,5 @@ const CKL = (() => {
       g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.35, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) { /* kein Ton */ }
   }
 
-  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
+  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, TAKTE, QUEUE, LOCK_BEFORE, slotAt, queueOf, canChange, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
 })();
