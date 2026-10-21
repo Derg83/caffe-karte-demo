@@ -77,7 +77,7 @@ body{padding-block:16px 96px}
 <script src="vendor/qrcode.js"></script>
 <script src="assets/live.js"></script>
 <script>
-const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, isHeld, TAKTE, slotAt, queueOf, canChange, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
+const { qs, TOPIC_RE, eur, clock, esc, dur, cd, rid, toast, store, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, isHeld, TAKTE, nextItem, canChange, planValid, cardTopic, pack, fit, LIMIT_TEXT, total, unlockAudio, beep } = CKL;
 const MIN = 60000;
 
 /* ---------- Fester Vorführ-Code: steckt im Link der Karten ---------- */
@@ -143,7 +143,7 @@ function addOrder(t, i, extra, at) {
   t.orders.push({ k: t.k, name: d[0], price: d[1], at: at ?? now(), status: 'offen', extra: !!extra });
   newIds.add(t.no + ':' + t.k); beep();
 }
-function stopTicket(t, reason) { t.screen = 'pay'; t.stopAt = now(); t.reason = reason || null; t.pay = T.cfg.pay.length === 1 ? { m: T.cfg.pay[0], st: 'waiting' } : { m: null, st: 'choose' }; }
+function stopTicket(t, reason) { t.plan = []; t.screen = 'pay'; t.stopAt = now(); t.reason = reason || null; t.pay = T.cfg.pay.length === 1 ? { m: T.cfg.pay[0], st: 'waiting' } : { m: null, st: 'choose' }; }
 const ticketList = () => Object.entries(T.tickets).map(([n, t]) => ({ n: +n, t })).sort((a, b) => a.t.start - b.t.start);
 
 /* ---------- Befehle vom Gast-Handy ---------- */
@@ -164,19 +164,30 @@ function onCmd(m) {
       const tisch = Math.round(+m.table);
       const place = T.cfg.place === 'tisch' && tisch >= 1 && tisch <= T.cfg.tables ? `Tisch ${tisch}` : `Tisch ${n}`;   // Karte liegt fest auf Tisch n
       const at = now();
-      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, q: [m.item, m.item, m.item], start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
+      t = T.tickets[n] = { no: String(++T.no), place, screen: 'live', takt: m.takt, next: m.item, plan: [], start: at, lastAuto: at, lastAct: at, remindAt: 0, nextAt: at + m.takt * MIN, orders: [], k: 0 };
+      // Vor dem Start vorgemerkt: Zeiten kommen als Abstand zum Start (off)
+      if (Array.isArray(m.plan) && m.plan.length) {
+        const p = m.plan.map(x => ({ i: Math.round(+(x && x.i)), at: at + Math.round(+(x && x.off)) }));
+        if (planValid(t, p, at, okItem)) { t.plan = p; t.nextAt = p[0].at; }
+      }
       // „Ich hab noch was“: keine Bestellung beim Start, erste Runde nach einem Takt
       if (m.later === true) toast(`${place} startet, erste Runde in ${m.takt} Min`);
       else { addOrder(t, m.item, false, at); toast(`${place} startet: ${d[m.item][0]}`); }
       break;
     }
-    // Eine der nächsten 3 Runden ändern, nur bis 10 Min vorher
-    case 'slot': case 'next': {
-      const i = m.op === 'next' ? 0 : Math.round(+m.slot);
-      if (t && t.screen === 'live' && okItem(m.item) && i >= 0 && i < 3 && canChange(t, i, now())) { t.q = queueOf(t); t.q[i] = m.item; t.next = t.q[0]; touch(t); }
+    // „Als Nächstes“ ändern, nur bis 10 Min vorher
+    case 'next': if (t && t.screen === 'live' && okItem(m.item) && canChange(t, now())) { touch(t); if (t.plan && t.plan.length) t.plan[0].i = m.item; else t.next = m.item; } break;
+    // Vorausplanen: bis zu 5 Getränke mit Uhrzeit (leer = Vormerkung löschen)
+    case 'plan': {
+      if (!t || t.screen !== 'live' || !planValid(t, m.plan, now(), okItem)) break;
+      const fixedFirst = !canChange(t, now()) && t.plan && t.plan.length ? t.plan[0] : null;
+      t.plan = m.plan.length ? m.plan.map(x => ({ i: x.i, at: Math.round(x.at) })) : fixedFirst ? [fixedFirst] : [];
+      if (t.plan.length) t.nextAt = t.plan[0].at; else if (canChange(t, now())) t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN);
+      touch(t);
+      toast(`${t.place}: ${m.plan.length ? m.plan.length + ' Getränke vorgemerkt' : 'Vormerkung gelöscht'}`);
       break;
     }
-    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
+    case 'takt': if (t && t.screen === 'live' && T.cfg.takte.includes(m.takt)) { touch(t); t.takt = m.takt; if (!(t.plan && t.plan.length)) t.nextAt = Math.max(now(), t.lastAuto + t.takt * MIN); } break;
     case 'extra': if (t && t.screen === 'live' && okItem(m.item)) { touch(t); addOrder(t, m.item, true); toast(`${t.place}: extra ${d[m.item][0]}`); } break;
     case 'stillhere': if (t && t.screen === 'live') { touch(t); toast(`${t.place}: Gast ist noch da`); } break;
     case 'stop': if (t && t.screen === 'live') { stopTicket(t); beep(); } break;
@@ -200,7 +211,9 @@ function checkRemind(t, at) {
 // Gast hat etwas getan: Nachfrage weg, nach einer Pause läuft der Takt ab jetzt neu
 function touch(t) {
   const n0 = now();
-  if (isHeld(t, n0) && t.nextAt <= n0) { t.lastAuto = n0; t.nextAt = n0 + t.takt * MIN; }
+  if (isHeld(t, n0) && t.nextAt <= n0) {   // nach der Pause: Takt ab jetzt, Vormerkungen rücken mit
+    const d = n0 + t.takt * MIN - t.nextAt; t.lastAuto = n0; t.nextAt += d; (t.plan || []).forEach(x => { x.at += d; });
+  }
   t.remindAt = 0; t.lastAct = n0;
 }
 const heldShown = new Set(), lockShown = new Map();
@@ -212,15 +225,16 @@ function advanceAll() {
       const at = t.nextAt;
       if (checkRemind(t, at)) ch = true;
       if (isHeld(t, at)) break;   // keine Antwort auf die Nachfrage: keine weitere Runde
-      const q = queueOf(t), item = q.shift(); q.push(q[q.length - 1]);   // Runde nimmt den ersten Platz, hinten rückt das letzte Getränk nach
-      t.q = q; t.next = q[0];
-      t.lastAuto = at; addOrder(t, item, false, at); t.nextAt = at + t.takt * MIN; ch = true; rounds++;
+      // Vorgemerkte Runde kommt zu ihrer Zeit, sonst das „Als Nächstes“-Getränk im Takt
+      const item = t.plan && t.plan.length ? t.plan.shift().i : t.next;
+      t.lastAuto = at; addOrder(t, item, false, at);
+      t.nextAt = t.plan && t.plan.length ? t.plan[0].at : at + t.takt * MIN; ch = true; rounds++;
     }
     if (checkRemind(t, now())) ch = true;
     // Pause beginnt: Theke neu zeichnen (das Handy rechnet die Pause selbst aus)
     const held = isHeld(t, now());
     if (held !== heldShown.has(n)) { held ? heldShown.add(n) : heldShown.delete(n); ch = true; }
-    const fixed = !canChange(t, 0, now());   // nächste Runde ist jetzt fest: Anzeige auffrischen
+    const fixed = !canChange(t, now());   // nächste Runde ist jetzt fest: Anzeige auffrischen
     if (fixed !== lockShown.get(n)) { lockShown.set(n, fixed); ch = true; }
   }
   return { ch, rounds };
@@ -260,7 +274,7 @@ function render() {
       </section></div>
       <div>
         <section><div class="lbl">Laptop-Ticker (${list.filter(x => x.t.screen === 'live').length} aktiv)</div>
-          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? (() => { const q = queueOf(t), dn = i => esc((T.cfg.drinks[q[i]] || T.cfg.drinks[0])[0]); return `Nächstes: ${dn(0)}${canChange(t, 0, now()) ? '' : ' (fest)'} in <span class="mono" data-cd="${t.nextAt}"></span> · danach ${dn(1)}, ${dn(2)}`; })() : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
+          ${list.length ? list.map(({ n, t }) => `<div class="tcard"><div class="hd">${badge(t.place)}<div class="grow"><b>#${esc(t.no)} · seit <span data-since="${t.start}" data-stop="${t.stopAt || ''}"></span></b><span class="meta" style="font-size:13px;color:var(--muted)">${t.screen === 'live' && isHeld(t, now()) ? '<b class="late">Pausiert: Gast antwortet nicht. Bitte am Platz nachsehen.</b>' : t.screen === 'live' && t.remindAt ? '<b class="late">Fragt gerade: „Bist du noch da?“</b>' : t.screen === 'live' ? (() => { const dn = i => esc((T.cfg.drinks[i] || T.cfg.drinks[0])[0]), later = (t.plan || []).slice(1); return `Nächstes: ${dn(nextItem(t))}${canChange(t, now()) ? '' : ' (fest)'} in <span class="mono" data-cd="${t.nextAt}"></span>${later.length ? ` · vorgemerkt: ${later.map(x => `${clock(x.at)} ${dn(x.i)}`).join(', ')}` : ''}`; })() : t.screen === 'pay' ? 'Gestoppt, wartet auf Zahlung' : `Bezahlt, ${PAY[t.paidBy] ? PAY[t.paidBy].short : ''}`}</span></div></div>
             <div class="facts"><span>Takt<b>alle ${t.takt} Min</b></span><span>Bisher<b>${eur(total(t))}</b></span></div>
             ${t.screen === 'live' ? `<div class="row2"><button type="button" class="btn sm ghost" data-act="stopT" data-n="${n}">Ticker beenden</button></div>` : ''}</div>`).join('') : '<p class="empty">Noch kein Ticker. Lass eine Karte scannen.</p>'}
         </section>

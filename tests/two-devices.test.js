@@ -74,22 +74,42 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
   });
 
   const phone2 = await open(PHONE, 'Handy 2', card1.replace('n=1', 'n=2'));
-  await t.test('Nächste 3 Runden vorwählen, 10 Min vorher wird die Runde fest', async () => {
-    // Tisch 1 läuft im 30-Minuten-Takt mit Flat White
-    assert.strictEqual(await phone.locator('.qrow').count(), 3);
-    await phone.click('[data-act=sheet][data-v=slot2]');
-    await phone.click('.sheet [data-act=slot][data-v="0"]');           // Runde 3: Cappuccino
-    await phone.locator('.qrow').nth(2).getByText('Cappuccino').waitFor();
-    await laptop.getByText('danach Flat White, Cappuccino').waitFor();
-    // 20 Min vorspulen: Runde 1 ist dann nur noch 10 Min entfernt und fest
+  await t.test('Vorausplanen: Anzahl, Getränk, Zeit verschieben, folgende rücken mit', async () => {
+    // Tisch 1 läuft im 30-Minuten-Takt mit Flat White, nächste Runde in 30 Min
+    await phone.getByText('Als Nächstes', { exact: true }).waitFor();
+    await phone.click('[data-act=planner]');
+    await phone.getByText('Du weißt schon, was es als Nächstes wird?').first().waitFor();
+    assert.strictEqual(await phone.locator('.prow').count(), 3);
+    await phone.click('.sheet [data-act=pcount][data-v="4"]');
+    assert.strictEqual(await phone.locator('.prow').count(), 4);
+    const times = async () => phone.locator('.prow .ptime b').allTextContents();
+    const before = await times();
+    await phone.selectOption('select[data-pi="1"]', '0');
+    await phone.click('[data-act=ptime][data-v="1:1"]');            // Runde 2 fünf Minuten später
+    const after = await times();
+    const min = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+    assert.deepStrictEqual(after.map(min).map((m, k) => m - min(before[k])), [0, 5, 5, 5]);   // folgende rücken mit
+    await phone.click('[data-act=ptime][data-v="0:-1"]');           // erste Runde 5 Min früher geht (noch 25 Min weg)
+    await phone.click('[data-act=psave]');
+    await phone.locator('.planbox').waitFor();
+    assert.strictEqual(await phone.locator('.pline').count(), 4);
+    await laptop.getByText(/vorgemerkt: .*Cappuccino/).waitFor();
+    // Vorspulen: erste vorgemerkte Runde kommt, dann die geplante Cappuccino-Runde
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await phone.waitForFunction(() => document.querySelectorAll('.pline').length === 3);   // eine weniger
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await laptop.click('[data-act=ff][data-v="15"]');
+    await phone.waitForFunction(() => [...document.querySelectorAll('.bon-row span:nth-child(2)')].some(e => e.textContent.startsWith('Cappuccino')));
+  });
+
+  await t.test('Nächste Runde ist 10 Min vorher fest', async () => {
+    // Nächste vorgemerkte Runde ist 30 Min entfernt: 20 Min vorspulen, dann sind es 10 Min
+    assert.ok(await phone.locator('.card [data-act=sheet][data-v=menu]').isVisible());
     await laptop.click('[data-act=ff][data-v="15"]');
     await laptop.click('[data-act=ff][data-v="5"]');
-    await phone.locator('.qrow.fixed').first().waitFor();
+    await phone.locator('.card .qfix').waitFor();
     await laptop.getByText('(fest)').first().waitFor();
-    // Wenn die Runde kommt, rückt alles nach
-    await laptop.click('[data-act=ff][data-v="15"]');
-    await phone.locator('.qrow').nth(1).getByText('Cappuccino').waitFor();
-    await phone.locator('.qrow').nth(2).getByText('Cappuccino').waitFor();
   });
 
   await t.test('Zweite Karte läuft parallel', async () => {
@@ -154,6 +174,13 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await p4.getByText('Wann soll das nächste kommen?').waitFor();
     await p4.click('[data-act=takt][data-v="40"]');
     assert.strictEqual(await p4.locator('[data-act=start]').textContent(), 'Ticker starten · nächstes in 40 Min');
+    // Schon vor dem Start vorausplanen: 2 Getränke, das zweite ein Flat White
+    await p4.click('[data-act=planner]');
+    await p4.click('.sheet [data-act=pcount][data-v="2"]');
+    await p4.selectOption('select[data-pi="1"]', '1');                // Flat White
+    await p4.click('[data-act=psave]');
+    await p4.getByText('Vorgemerkt', { exact: true }).waitFor();
+    assert.strictEqual(await p4.locator('.pline').count(), 2);
     await p4.click('[data-act=start]');
     await p4.locator('.pill.live').waitFor();
     assert.strictEqual(await p4.locator('.bon-row').count(), 0);
@@ -161,6 +188,9 @@ test('Vorführung mit Laptop und zwei Handys', async t => {
     await laptop.locator('.tcard', { hasText: 'Tisch' }).filter({ hasText: '4' }).first().waitFor();
     await laptop.click('[data-act=ff][data-v="60"]');
     await p4.waitForFunction(() => document.querySelectorAll('.bon-row').length === 1);
+    await p4.locator('.pline').first().waitFor();   // noch 1 vorgemerkt (Flat White)
+    await laptop.click('[data-act=ff][data-v="60"]');
+    await p4.waitForFunction(() => [...document.querySelectorAll('.bon-row span:nth-child(2)')].some(e => e.textContent.startsWith('Flat White')));
     await p4.close();
   });
 

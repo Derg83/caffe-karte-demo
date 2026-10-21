@@ -81,12 +81,21 @@ const CKL = (() => {
   const ANSWER_WITHIN = 15 * 60000;   // ohne Antwort danach keine weitere Runde
   const isHeld = (t, at) => !!t.remindAt && at >= t.remindAt + ANSWER_WITHIN;
 
-  /* ---------- Die nächsten 3 Runden: vorwählbar, bis 10 Min vorher änderbar ---------- */
-  const QUEUE = 3, LOCK_BEFORE = 10 * 60000;
-  const slotAt = (t, i) => t.nextAt + i * t.takt * 60000;
-  const queueOf = t => { const q = Array.isArray(t.q) ? t.q.slice(0, QUEUE) : []; while (q.length < QUEUE) q.push(q.length ? q[q.length - 1] : (t.next || 0)); return q; };
-  // Ändern geht, solange die Runde mehr als 10 Min entfernt ist (bei Pause immer)
-  const canChange = (t, i, at) => isHeld(t, at) || slotAt(t, i) - at > LOCK_BEFORE;
+  /* ---------- Vorausplanen: bis zu 5 Getränke mit Uhrzeit, unverbindlich ---------- */
+  // t.plan = [{ i: Getränk, at: Zeitpunkt }], aufsteigend. Ist ein Plan da, kommt die nächste Runde zum Plan-Zeitpunkt.
+  const PLAN_MAX = 5, LOCK_BEFORE = 10 * 60000, MIN_GAP = 5 * 60000, STEP = 5 * 60000;
+  const nextItem = t => t.plan && t.plan.length ? t.plan[0].i : t.next;
+  // Die nächste Runde ist 10 Min vorher fest (das Café bereitet sie vor); bei Pause nicht
+  const canChange = (t, at) => isHeld(t, at) || t.nextAt - at > LOCK_BEFORE;
+  function planValid(t, p, at, okItem) {
+    if (!Array.isArray(p) || p.length > PLAN_MAX) return false;
+    if (!p.every(x => x && okItem(x.i) && Number.isFinite(x.at))) return false;
+    for (let k = 1; k < p.length; k++) if (p[k].at - p[k - 1].at < MIN_GAP) return false;
+    if (!p.length) return true;
+    if (p[p.length - 1].at - at > 6 * 3600000) return false;
+    if (!canChange(t, at)) return p[0].i === nextItem(t) && p[0].at === t.nextAt;   // nächste Runde ist fest und bleibt
+    return p[0].at - at >= LOCK_BEFORE - 60000;                                   // 1 Min Puffer für die Übertragung
+  }
 
   /* ---------- Kompaktes Format für einen Ticker ---------- */
   const ST = ['offen', 'fertig', 'erledigt'];
@@ -151,5 +160,5 @@ const CKL = (() => {
       g.gain.setValueAtTime(.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.35, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + .16); o.start(t0 + d); o.stop(t0 + d + .18); }); } catch (_) { /* kein Ton */ }
   }
 
-  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, TAKTE, QUEUE, LOCK_BEFORE, slotAt, queueOf, canChange, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
+  return { qs, RELAY, TOPIC_RE, eur, clock, pad, esc, dur, cd, rid, toast, store, DEFAULT, PAY, clean, encode, decode, publish, subscribe, REMIND_AFTER, ANSWER_WITHIN, isHeld, TAKTE, PLAN_MAX, LOCK_BEFORE, MIN_GAP, STEP, nextItem, canChange, planValid, cardTopic, pack, unpack, fit, bytes, LIMIT_TEXT, ICON, total, count, bon, unlockAudio, beep };
 })();
